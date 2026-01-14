@@ -1,0 +1,48 @@
+# Cargo configuration for faster builds
+
+[build]
+# Use all available CPU cores for parallel compilation
+# jobs = 0 would use all cores, but let cargo auto-detect instead
+
+# Incremental compilation
+# NOTE: Build scripts automatically enable sccache if available (which disables incremental)
+# If sccache is not available, incremental compilation is enabled via CARGO_INCREMENTAL=1
+# sccache provides better caching across projects and clean builds
+incremental = true  # Can be overridden by CARGO_INCREMENTAL environment variable
+
+# Compiler caching with sccache
+# The build scripts automatically detect and use sccache if installed.
+# To enable globally (optional - build scripts already handle this):
+# rustc-wrapper = "sccache"
+#
+# Install sccache: cargo install sccache --locked
+# Or download pre-built binary from: https://github.com/mozilla/sccache/releases
+# Current status: sccache is installed and will be auto-detected by build scripts
+
+# Use faster linker (lld) on Windows if available
+# lld-link.exe detected at: C:\Program Files\LLVM\bin\lld-link.exe
+# Build scripts will automatically add LLVM to PATH and enable lld
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=-fuse-ld=lld-link"]
+
+# Alternative: Use mold linker (if installed on Linux)
+# [target.x86_64-unknown-linux-gnu]
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[profile.dev]
+# Faster dev builds - less optimization but much faster compilation
+opt-level = 0
+debug = true
+incremental = true  # Enabled for faster dev builds
+codegen-units = 256  # More codegen units = faster compilation, larger binaries
+
+[profile.release]
+# Optimized release builds
+opt-level = 3
+lto = "thin"  # Thin LTO balances size/speed vs compile time better than "full"
+codegen-units = 1  # Fewer units for better optimization
+strip = true  # Strip symbols to reduce binary size
+
+[net]
+# Use Git for faster dependency fetching
+git-fetch-with-cli = true

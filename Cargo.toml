@@ -1,0 +1,41 @@
+[workspace]
+members = [
+    "phpvm-core",
+    "phpvm-gui/src-tauri"
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["PHP Version Manager"]
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
+sha2 = "0.10"
+hex = "0.4"
+dirs = "5.0"
+anyhow = "1.0"
+thiserror = "1.0"
+clap = { version = "4.4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+zip = "0.6"
+tar = "0.4"
+flate2 = "1.0"
+futures = "0.3"
+regex = "1.10"
+
+# Development profile optimized for hot reload
+# Faster compilation, no optimizations, faster linking
+[profile.dev]
+opt-level = 0          # No optimizations (fastest compilation)
+debug = true           # Include debug info
+incremental = true     # Enable incremental compilation (hot reload)
+codegen-units = 16     # More units for faster parallel compilation (good balance)
+panic = 'unwind'       # Faster than abort in debug mode
+strip = false          # Keep symbols for debugging
