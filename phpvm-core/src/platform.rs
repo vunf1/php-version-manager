@@ -1,5 +1,4 @@
 use crate::config;
-use anyhow::Context;
 use std::path::PathBuf;
 
 #[cfg(target_os = "windows")]
@@ -103,7 +102,6 @@ pub fn add_to_path(current_dir: &PathBuf) -> anyhow::Result<()> {
 #[cfg(not(target_os = "windows"))]
 pub fn add_to_path(current_dir: &PathBuf) -> anyhow::Result<()> {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
     let rc_file = if shell.contains("zsh") {
