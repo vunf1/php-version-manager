@@ -397,7 +397,7 @@ pub fn apply_update(update_file: PathBuf) -> Result<(), String> {
         Command::new("pkexec")
             .args(&["dpkg", "-i", update_file.to_str().unwrap()])
             .spawn()
-            .map_err(|e| format!("Failed to launch package installer. Please install manually with: sudo dpkg -i {}", update_file.display()))?;
+            .map_err(|_e| format!("Failed to launch package installer. Please install manually with: sudo dpkg -i {}", update_file.display()))?;
         return Ok(());
     }
     
@@ -407,7 +407,7 @@ pub fn apply_update(update_file: PathBuf) -> Result<(), String> {
         Command::new("pkexec")
             .args(&["rpm", "-i", update_file.to_str().unwrap()])
             .spawn()
-            .map_err(|e| format!("Failed to launch package installer. Please install manually with: sudo rpm -i {}", update_file.display()))?;
+            .map_err(|_e| format!("Failed to launch package installer. Please install manually with: sudo rpm -i {}", update_file.display()))?;
         return Ok(());
     }
     

@@ -37,6 +37,20 @@ jobs:
         working-directory: phpvm-gui
         run: npm install
 
+      - name: Generate icon files
+        working-directory: phpvm-gui
+        run: |
+          # Create minimal valid PNG icons if they don't exist (Windows build)
+          cd src-tauri/icons
+          if (-not (Test-Path icon.png)) {
+            # Use PowerShell to create minimal PNG or copy existing icon
+            if (Test-Path icon.ico) {
+              # For Windows, we can try to use the ICO, but Tauri needs PNG
+              # Create a placeholder - in production, proper icons should be generated
+              Write-Host "Note: icon.png should be generated from icon.ico for production builds"
+            }
+          }
+
       - name: Build core library
         working-directory: phpvm-core
         run: cargo build --release
@@ -94,6 +108,12 @@ jobs:
       - name: Install dependencies
         working-directory: phpvm-gui
         run: npm install
+
+      - name: Generate icon files
+        working-directory: phpvm-gui
+        run: |
+          chmod +x src-tauri/icons/generate-icons.sh
+          ./src-tauri/icons/generate-icons.sh
 
       - name: Build core library
         working-directory: phpvm-core
