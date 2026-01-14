@@ -22,8 +22,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: phpvm-gui/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -37,7 +35,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: phpvm-gui
-        run: npm ci
+        run: npm install
 
       - name: Build core library
         working-directory: phpvm-core
@@ -67,8 +65,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: phpvm-gui/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -96,7 +92,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: phpvm-gui
-        run: npm ci
+        run: npm install
 
       - name: Build core library
         working-directory: phpvm-core
