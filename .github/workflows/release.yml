@@ -124,8 +124,17 @@ jobs:
       - name: Generate icon files
         working-directory: phpvm-gui
         run: |
-          chmod +x src-tauri/icons/generate-icons.sh
-          ./src-tauri/icons/generate-icons.sh
+          cd src-tauri/icons
+          chmod +x generate-icons.sh
+          ./generate-icons.sh
+          # Verify all required icon files exist
+          for icon in icon.png 32x32.png 128x128.png 128x128@2x.png; do
+            if [ ! -f "$icon" ]; then
+              echo "Error: Required icon file $icon was not generated!"
+              exit 1
+            fi
+            echo "✓ $icon exists ($(stat -c%s "$icon") bytes)"
+          done
 
       - name: Build core library
         working-directory: phpvm-core
