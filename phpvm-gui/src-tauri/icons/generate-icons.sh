@@ -45,10 +45,28 @@ EOF
 
 cd "$(dirname "$0")"
 
-# Create required icon files if they don't exist
-[ ! -f icon.png ] && create_minimal_png 256 icon.png
-[ ! -f 32x32.png ] && create_minimal_png 32 32x32.png
-[ ! -f 128x128.png ] && create_minimal_png 128 128x128.png
-[ ! -f 128x128@2x.png ] && create_minimal_png 256 128x128@2x.png
+# Function to check if a file is a valid PNG
+is_valid_png() {
+    local file=$1
+    if [ ! -f "$file" ]; then
+        return 1
+    fi
+    # Check PNG signature (first 8 bytes: 89 50 4E 47 0D 0A 1A 0A)
+    python3 -c "import sys; f = open('$file', 'rb'); h = f.read(8); f.close(); sys.exit(0 if h[:4] == b'\x89PNG' else 1)" 2>/dev/null
+}
+
+# Create required icon files if they don't exist or are invalid
+if [ ! -f icon.png ] || ! is_valid_png icon.png; then
+    create_minimal_png 256 icon.png
+fi
+if [ ! -f 32x32.png ] || ! is_valid_png 32x32.png; then
+    create_minimal_png 32 32x32.png
+fi
+if [ ! -f 128x128.png ] || ! is_valid_png 128x128.png; then
+    create_minimal_png 128 128x128.png
+fi
+if [ ! -f 128x128@2x.png ] || ! is_valid_png 128x128@2x.png; then
+    create_minimal_png 256 128x128@2x.png
+fi
 
 echo "Icon files generated successfully"

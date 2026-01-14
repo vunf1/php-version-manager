@@ -1,4 +1,5 @@
 use crate::config;
+use anyhow::Context;
 use std::path::PathBuf;
 
 #[cfg(target_os = "windows")]
@@ -52,7 +53,7 @@ pub fn add_to_path(current_dir: &PathBuf) -> anyhow::Result<()> {
     
     // Check if already in PATH (exact match or as part of a path)
     let path_entries: Vec<&str> = path_value.split(';').collect();
-    let already_in_path = path_entries.iter().any(|entry| {
+    let already_in_path = path_entries.iter().any(|entry: &&str| {
         entry.trim().eq_ignore_ascii_case(&current_str)
     });
     
@@ -60,7 +61,7 @@ pub fn add_to_path(current_dir: &PathBuf) -> anyhow::Result<()> {
         // Remove any existing phpvm entries to avoid duplicates
         let cleaned_path: Vec<&str> = path_entries
             .iter()
-            .filter(|entry| {
+            .filter(|entry: &&str| {
                 let entry_trimmed = entry.trim();
                 // Keep entries that don't look like phpvm current directory
                 !entry_trimmed.contains("phpvm") || !entry_trimmed.contains("current")
@@ -68,7 +69,7 @@ pub fn add_to_path(current_dir: &PathBuf) -> anyhow::Result<()> {
             .copied()
             .collect();
         
-        let new_path = if cleaned_path.is_empty() || cleaned_path.iter().all(|s| s.trim().is_empty()) {
+        let new_path = if cleaned_path.is_empty() || cleaned_path.iter().all(|s: &&str| s.trim().is_empty()) {
             current_str
         } else {
             // Add to the beginning of PATH for priority
@@ -143,7 +144,7 @@ pub fn remove_from_path(current_dir: &PathBuf) -> anyhow::Result<()> {
     if path_value.contains(&current_str) {
         let new_path = path_value
             .split(';')
-            .filter(|p| !p.contains(&current_str))
+            .filter(|p: &&str| !p.contains(&current_str))
             .collect::<Vec<_>>()
             .join(";");
         environment

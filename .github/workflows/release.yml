@@ -40,16 +40,28 @@ jobs:
       - name: Generate icon files
         working-directory: phpvm-gui
         run: |
-          # Create minimal valid PNG icons if they don't exist (Windows build)
+          # Generate missing PNG icon files if needed (Windows build)
           cd src-tauri/icons
-          if (-not (Test-Path icon.png)) {
-            # Use PowerShell to create minimal PNG or copy existing icon
-            if (Test-Path icon.ico) {
-              # For Windows, we can try to use the ICO, but Tauri needs PNG
-              # Create a placeholder - in production, proper icons should be generated
-              Write-Host "Note: icon.png should be generated from icon.ico for production builds"
-            }
-          }
+          python -c "import struct, zlib, os; 
+          def create_png(size, filename):
+              png = b'\x89PNG\r\n\x1a\n'
+              ihdr_data = struct.pack('>II', size, size) + b'\x08\x06\x00\x00\x00'
+              crc = zlib.crc32(b'IHDR' + ihdr_data) & 0xffffffff
+              png += struct.pack('>I', len(ihdr_data)) + b'IHDR' + ihdr_data + struct.pack('>I', crc)
+              idat_data = b'\x00' * (size * size * 4 + size)
+              idat_compressed = zlib.compress(idat_data)
+              crc = zlib.crc32(b'IDAT' + idat_compressed) & 0xffffffff
+              png += struct.pack('>I', len(idat_compressed)) + b'IDAT' + idat_compressed + struct.pack('>I', crc)
+              png += b'\x00\x00\x00\x00IEND\xaeB`\x82'
+              with open(filename, 'wb') as f: f.write(png)
+          def is_valid_png(filename):
+              try:
+                  with open(filename, 'rb') as f: return f.read(8)[:4] == b'\x89PNG'
+              except: return False
+          for size, name in [(256, 'icon.png'), (32, '32x32.png'), (128, '128x128.png'), (256, '128x128@2x.png')]:
+              if not os.path.exists(name) or not is_valid_png(name):
+                  create_png(size, name)
+                  print(f'Generated {name}')"
 
       - name: Build core library
         working-directory: phpvm-core
