@@ -1,0 +1,248 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v0.1.0, v1.2.3, etc.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to create release for (e.g., v0.1.2)'
+        required: true
+
+jobs:
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: phpvm-gui/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Install Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'phpvm-core -> target, phpvm-gui/src-tauri -> target'
+
+      - name: Install dependencies
+        working-directory: phpvm-gui
+        run: npm ci
+
+      - name: Build core library
+        working-directory: phpvm-core
+        run: cargo build --release
+
+      - name: Build Tauri app (Windows)
+        working-directory: phpvm-gui
+        run: npm run tauri build
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            phpvm-gui/src-tauri/target/release/bundle/msi/*.msi
+            phpvm-gui/src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 30
+
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: phpvm-gui/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Install Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'phpvm-core -> target, phpvm-gui/src-tauri -> target'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.0-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install dependencies
+        working-directory: phpvm-gui
+        run: npm ci
+
+      - name: Build core library
+        working-directory: phpvm-core
+        run: cargo build --release
+
+      - name: Build Tauri app (Linux)
+        working-directory: phpvm-gui
+        run: npm run tauri build
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            phpvm-gui/src-tauri/target/release/bundle/appimage/*.AppImage
+            phpvm-gui/src-tauri/target/release/bundle/deb/*.deb
+            phpvm-gui/src-tauri/target/release/bundle/rpm/*.rpm
+          retention-days: 30
+
+  create-release:
+    name: Create Release
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION_NUMBER="${VERSION#v}"
+          
+          # Generate changelog from commits
+          if git describe --tags --abbrev=0 HEAD~1 2>/dev/null; then
+            LAST_TAG=$(git describe --tags --abbrev=0 HEAD~1)
+            CHANGELOG=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges -20)
+          fi
+          
+          # Build release notes in RELEASE_NOTES.md format
+          NOTES="# Release Notes\n\n"
+          NOTES="${NOTES}## Version ${VERSION_NUMBER}\n\n"
+          NOTES="${NOTES}### 🎉 Overview\n\n"
+          NOTES="${NOTES}Release ${VERSION_NUMBER} of PHP Version Manager, a cross-platform tool for managing multiple PHP versions with a modern graphical interface.\n\n"
+          NOTES="${NOTES}### 📦 Installation\n\n"
+          NOTES="${NOTES}**Windows (64-bit)**\n\n"
+          NOTES="${NOTES}Two installer options are available:\n\n"
+          NOTES="${NOTES}- **MSI Installer**: \`PHP Version Manager_${VERSION_NUMBER}_x64_en-US.msi\`\n"
+          NOTES="${NOTES}  - Recommended for enterprise deployments\n"
+          NOTES="${NOTES}  - Supports silent installation\n"
+          NOTES="${NOTES}  - Integrates with Windows Installer service\n\n"
+          NOTES="${NOTES}- **Setup Executable**: \`PHP Version Manager_${VERSION_NUMBER}_x64-setup.exe\`\n"
+          NOTES="${NOTES}  - User-friendly installation wizard\n"
+          NOTES="${NOTES}  - Includes automatic dependency checks\n"
+          NOTES="${NOTES}  - Standard Windows installer experience\n\n"
+          NOTES="${NOTES}**Linux**\n\n"
+          NOTES="${NOTES}- **AppImage**: Download the \`.AppImage\` file, make it executable (\`chmod +x\`), and run it\n"
+          NOTES="${NOTES}- **Debian/Ubuntu**: Install the \`.deb\` package with \`sudo dpkg -i *.deb\`\n"
+          NOTES="${NOTES}- **Fedora/RHEL**: Install the \`.rpm\` package with \`sudo rpm -i *.rpm\` or \`sudo dnf install *.rpm\`\n\n"
+          NOTES="${NOTES}### ✨ What's New\n\n"
+          if [ -n "$CHANGELOG" ]; then
+            NOTES="${NOTES}${CHANGELOG}\n\n"
+          else
+            NOTES="${NOTES}See commit history for detailed changes.\n\n"
+          fi
+          NOTES="${NOTES}### 🛠️ System Requirements\n\n"
+          NOTES="${NOTES}**Windows:**\n"
+          NOTES="${NOTES}- Windows 10 or later (64-bit)\n"
+          NOTES="${NOTES}- Administrator privileges for installation (optional for user-scoped installs)\n"
+          NOTES="${NOTES}- Internet connection for downloading PHP versions\n\n"
+          NOTES="${NOTES}**Linux:**\n"
+          NOTES="${NOTES}- Linux distribution with GTK 3.0+ and WebKitGTK support\n"
+          NOTES="${NOTES}- Internet connection for downloading PHP versions\n\n"
+          NOTES="${NOTES}### 🚀 Getting Started\n\n"
+          NOTES="${NOTES}1. **Install the Application**\n"
+          NOTES="${NOTES}   - Run the MSI or Setup executable\n"
+          NOTES="${NOTES}   - Follow the installation wizard\n"
+          NOTES="${NOTES}   - Launch PHP Version Manager from the Start menu\n\n"
+          NOTES="${NOTES}2. **Install Your First PHP Version**\n"
+          NOTES="${NOTES}   - Open the \"Available Versions\" tab\n"
+          NOTES="${NOTES}   - Select a PHP version to install\n"
+          NOTES="${NOTES}   - Wait for download and installation to complete\n\n"
+          NOTES="${NOTES}3. **Switch PHP Versions**\n"
+          NOTES="${NOTES}   - Go to the \"Installed Versions\" tab\n"
+          NOTES="${NOTES}   - Click \"Set Active\" on your desired version\n"
+          NOTES="${NOTES}   - The system PATH will be updated automatically\n\n"
+          NOTES="${NOTES}### 🔒 Security\n\n"
+          NOTES="${NOTES}- **Checksum Verification**: All downloads are verified for integrity\n"
+          NOTES="${NOTES}- **Atomic Operations**: Installations are atomic with rollback support\n"
+          NOTES="${NOTES}- **User-Scoped**: No silent privilege escalation required\n"
+          NOTES="${NOTES}- **Memory Safe**: Built with Rust for security and reliability\n\n"
+          NOTES="${NOTES}### 📝 Notes\n\n"
+          NOTES="${NOTES}- Memory-safe implementation using Rust\n"
+          NOTES="${NOTES}- Low resource footprint for fast startup and minimal memory usage\n"
+          NOTES="${NOTES}- All PHP versions are downloaded from official sources\n"
+          NOTES="${NOTES}- Cross-platform support for Windows and Linux\n\n"
+          NOTES="${NOTES}### 🐛 Known Issues\n\n"
+          NOTES="${NOTES}None at this time. If you encounter any issues, please report them via the project repository or contact us at php-vm@jmsit.cloud.\n\n"
+          NOTES="${NOTES}---\n\n"
+          NOTES="${NOTES}**Release Date**: $(date +'%Y-%m-%d')\n"
+          NOTES="${NOTES}**Version**: ${VERSION_NUMBER}\n"
+          NOTES="${NOTES}**Platform**: Windows x64, Linux x64\n"
+          NOTES="${NOTES}**License**: MIT\n"
+          
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo -e "${NOTES}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: ./artifacts/windows
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: ./artifacts/linux
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Release ${{ env.VERSION }}
+          body: ${{ steps.release_notes.outputs.notes }}
+          draft: false
+          prerelease: ${{ contains(env.VERSION, '-') }}
+          files: |
+            artifacts/windows/**
+            artifacts/linux/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
