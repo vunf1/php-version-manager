@@ -1,0 +1,350 @@
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: none;
+}
+
+.modal-content {
+  background: #ffffff;
+  border-radius: 4px;
+  padding: 1.5rem;
+  max-width: 450px;
+  width: 90%;
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  animation: none;
+}
+
+.modal-content h2 {
+  margin: 0 0 0.75rem 0;
+  color: #212121;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.modal-content p {
+  margin: 0 0 1rem 0;
+  color: #757575;
+  font-size: 0.8125rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* Thread-safe option styles */
+.thread-safe-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.thread-safe-option {
+  display: flex;
+  align-items: flex-start;
+}
+
+.thread-safe-option.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.thread-safe-option.disabled input {
+  cursor: not-allowed;
+}
+
+.thread-safe-option.active-variant {
+  border-color: #2196f3;
+  background: #e3f2fd;
+  box-shadow: 0 2px 8px rgba(33, 150, 243, 0.2);
+}
+
+.thread-safe-option.active-variant:hover {
+  background: #bbdefb;
+  border-color: #1976d2;
+}
+
+.option-badge {
+  display: inline-block;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+
+.option-badge.installed-badge {
+  background: #4caf50;
+  color: #ffffff;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: none;
+  background: #ffffff;
+}
+
+.thread-safe-option:hover {
+  background: #f5f5f5;
+  border-color: #bdbdbd;
+}
+
+.thread-safe-option input[type="radio"] {
+  margin-top: 0.125rem;
+  cursor: pointer;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
+.thread-safe-option div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.thread-safe-option strong {
+  font-size: 0.8125rem;
+  color: #212121;
+  font-weight: 500;
+}
+
+.option-description {
+  font-size: 0.75rem;
+  color: #757575;
+}
+
+/* Premium installation modal */
+.install-modal-overlay {
+  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.6);
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.install-modal-content {
+  max-width: 400px;
+  padding: 2rem;
+  text-align: center;
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.install-modal-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.install-modal-header h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #212121;
+}
+
+.install-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid #e0e0e0;
+  border-top-color: #1976d2;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.install-progress {
+  margin: 1rem 0;
+  color: #757575;
+  font-size: 0.875rem;
+  min-height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.install-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: #e0e0e0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.install-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1976d2, #42a5f5);
+  border-radius: 3px;
+  animation: progressAnimation 2s ease-in-out infinite;
+  width: 70%;
+  transition: width 0.1s ease-out;
+}
+
+/* Disable animation when showing real download progress */
+.install-progress-bar:has(.install-progress-fill[style*="width"]) .install-progress-fill {
+  animation: none;
+}
+
+.download-progress-info {
+  margin: 0.75rem 0;
+}
+
+.download-progress-stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: #757575;
+  gap: 1rem;
+}
+
+.download-progress-stats span {
+  font-family: "Courier New", Consolas, monospace;
+  font-weight: 500;
+}
+
+/* Cached file indicators */
+.install-progress-cached {
+  color: #4caf50 !important;
+}
+
+.download-progress-cached {
+  border-left: 3px solid #4caf50;
+  padding-left: 0.5rem;
+}
+
+.cached-file-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #4caf50;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.install-cached-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: none;
+}
+
+@keyframes progressAnimation {
+  0% {
+    transform: translateX(-100%);
+    width: 30%;
+  }
+  50% {
+    width: 70%;
+  }
+  100% {
+    transform: translateX(300%);
+    width: 30%;
+  }
+}
+
+/* Switch version modal */
+.switch-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: switchPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes switchPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+.switch-progress-fill {
+  background: linear-gradient(90deg, #1976d2, #42a5f5, #1976d2);
+  background-size: 200% 100%;
+  animation: progressAnimation 2s ease-in-out infinite, gradientShift 3s ease infinite;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.delete-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: deletePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes deletePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.9;
+  }
+}
+
+.delete-progress-fill {
+  background: linear-gradient(90deg, #d32f2f, #f44336, #d32f2f);
+  background-size: 200% 100%;
+  animation: progressAnimation 2s ease-in-out infinite, gradientShift 3s ease infinite;
+}
+
+.switch-hint {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #e3f2fd;
+  border-radius: 4px;
+  color: #1976d2;
+  font-size: 0.75rem;
+  text-align: center;
+  border: 1px solid #bbdefb;
+}

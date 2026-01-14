@@ -1,0 +1,61 @@
+/* App layout and structure */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: #fafafa;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  background: #fafafa;
+}
+
+.tab-content {
+  max-width: none;
+  margin: 0;
+}
+
+.tab-content h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  color: #212121;
+}
+
+.loading {
+  text-align: center;
+  padding: 2rem;
+  color: #757575;
+  font-size: 0.875rem;
+}
+
+.loading-statuses {
+  text-align: center;
+  padding: 0.5rem;
+  color: #757575;
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: #757575;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+}
+
+.empty-state p {
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.empty-state .hint {
+  font-size: 0.8125rem;
+  color: #9e9e9e;
+}

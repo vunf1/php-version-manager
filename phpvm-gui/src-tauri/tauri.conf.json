@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PHP Version Manager",
+  "version": "0.1.0",
+  "identifier": "com.phpvm.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/php.ico"
+    ],
+    "copyright": "Copyleft 🄯 JMSIT.cloud",
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      }
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "fullscreen": false,
+        "resizable": true,
+        "title": "PHP Version Manager",
+        "width": 800,
+        "height": 600,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "capabilities": ["default"]
+    }
+  },
+  "plugins": {}
+}
