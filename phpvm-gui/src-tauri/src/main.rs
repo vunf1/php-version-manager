@@ -2,6 +2,7 @@
 
 mod app_state;
 mod commands;
+mod update;
 
 use app_state::AppState;
 use commands::*;
@@ -39,10 +40,15 @@ fn main() {
             get_current_dir,
             list_cached_files,
             remove_cached_file,
-            clear_all_cache
+            clear_all_cache,
+            get_app_version,
+            check_for_updates,
+            download_update,
+            apply_update
         ])
         .setup(|_app| {
             // App initialization code can go here
+            // Update check is triggered from frontend after app loads
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -1,4 +1,5 @@
 use crate::app_state::AppState;
+use crate::update;
 use phpvm_core::config;
 use phpvm_core::platform;
 use serde::{Deserialize, Serialize};
@@ -516,4 +517,85 @@ pub async fn clear_all_cache() -> Result<(), String> {
     }
     
     Ok(())
+}
+
+// ==================== Update Commands ====================
+
+#[tauri::command]
+pub async fn get_app_version() -> Result<String, String> {
+    Ok(update::get_current_version())
+}
+
+#[tauri::command]
+pub async fn check_for_updates() -> Result<update::UpdateInfo, String> {
+    update::check_for_updates().await
+}
+
+#[tauri::command]
+pub async fn download_update(
+    app: tauri::AppHandle,
+    download_url: String,
+) -> Result<String, String> {
+    // Create a channel for progress updates
+    let (tx, mut rx) = mpsc::unbounded_channel::<(u64, u64, f64)>();
+    let app_for_events = app.clone();
+    
+    // Spawn a task to listen for progress updates and emit events
+    tokio::spawn(async move {
+        let mut last_emitted = std::time::Instant::now();
+        while let Some((downloaded, total, speed_mbps)) = rx.recv().await {
+            let now = std::time::Instant::now();
+            
+            // Emit progress event every 100ms or when complete
+            if now.duration_since(last_emitted).as_millis() >= 100 || downloaded == total {
+                let percent = if total > 0 { (downloaded * 100) / total } else { 0 };
+                
+                let payload = serde_json::json!({
+                    "downloaded": downloaded,
+                    "total": total,
+                    "speed_mbps": speed_mbps,
+                    "percent": percent
+                });
+                
+                if let Err(e) = app_for_events.emit("update-download-progress", &payload) {
+                    eprintln!("[Update Download] Failed to emit event: {}", e);
+                }
+                
+                last_emitted = now;
+            }
+        }
+    });
+    
+    // Create progress callback that sends to channel
+    let last_sent = std::sync::Arc::new(std::sync::Mutex::new((0u64, std::time::Instant::now())));
+    let tx_clone = tx.clone();
+    let progress_callback: Box<dyn FnMut(u64, u64, f64) + Send + Sync> = Box::new(move |downloaded: u64, total: u64, speed_mbps: f64| {
+        let mut last = last_sent.lock().unwrap();
+        let now = std::time::Instant::now();
+        
+        // Send progress update every 100ms or when complete
+        if now.duration_since(last.1).as_millis() >= 100 || downloaded == total || (total > 0 && last.0 == 0) {
+            if let Err(e) = tx_clone.send((downloaded, total, speed_mbps)) {
+                eprintln!("[Update Download] Failed to send to channel: {}", e);
+            }
+            *last = (downloaded, now);
+        }
+    });
+    
+    let update_file = update::download_update(&download_url, Some(progress_callback)).await?;
+    
+    // Drop the sender to close the channel when done
+    drop(tx);
+    
+    Ok(update_file.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn apply_update(update_file_path: String) -> Result<(), String> {
+    let update_file = std::path::PathBuf::from(update_file_path);
+    if !update_file.exists() {
+        return Err("Update file not found".to_string());
+    }
+    
+    update::apply_update(update_file)
 }
