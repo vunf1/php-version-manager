@@ -1,7 +1,9 @@
 /**
  * Settings Tab Component
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { phpvmApi } from "../../services/phpvmApi";
+import { UpdateModal } from "../modals/UpdateModal";
 
 export const SettingsTab = ({
   pathStatus,
@@ -14,8 +16,50 @@ export const SettingsTab = ({
   onSetPath,
   onRefresh,
   showSuccess,
+  showError,
+  showInfo,
 }) => {
   const [copiedPath, setCopiedPath] = useState(null);
+  const [appVersion, setAppVersion] = useState("Loading...");
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+
+  // Load app version on mount
+  useEffect(() => {
+    const loadVersion = async () => {
+      try {
+        const version = await phpvmApi.getAppVersion();
+        setAppVersion(version);
+      } catch (err) {
+        console.error("Failed to load app version:", err);
+        setAppVersion("Unknown");
+      }
+    };
+    loadVersion();
+  }, []);
+
+  const handleCheckUpdates = async () => {
+    setCheckingUpdates(true);
+    setUpdateInfo(null);
+    try {
+      const info = await phpvmApi.checkForUpdates();
+      setUpdateInfo(info);
+      if (info.update_available) {
+        showInfo(
+          `Update available! Current: ${info.current_version}, Latest: ${info.latest_version}`,
+          5000
+        );
+      } else {
+        showSuccess("You are running the latest version!");
+      }
+    } catch (err) {
+      const errorMsg = err.toString();
+      showError(`Failed to check for updates: ${errorMsg}`);
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
 
   const handleCopyToClipboard = async (text, type) => {
     if (!text || text === "Not set") return;
@@ -125,6 +169,10 @@ export const SettingsTab = ({
       <div className="settings-section">
         <h3>Information</h3>
         <div className="setting-item">
+          <label>Application Version</label>
+          <div className="setting-value">{appVersion}</div>
+        </div>
+        <div className="setting-item">
           <label>Active Version</label>
           <div className="setting-value">
             {activeVersion ? `PHP ${activeVersion}` : "None"}
@@ -138,7 +186,59 @@ export const SettingsTab = ({
           <label>Available Versions</label>
           <div className="setting-value">{availableVersions.length}</div>
         </div>
+        {updateInfo && updateInfo.update_available && (
+          <div className="setting-item">
+            <label>Update Available</label>
+            <div className="setting-value" style={{ color: "#4caf50", fontWeight: "bold" }}>
+              Version {updateInfo.latest_version} is available
+              {updateInfo.release_url && (
+                <a
+                  href={updateInfo.release_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ marginLeft: "0.5rem", color: "#2196f3" }}
+                >
+                  (View Release)
+                </a>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+      <div className="settings-section">
+        <h3>Updates</h3>
+        <div className="setting-item">
+          <button
+            className="btn btn-primary"
+            onClick={handleCheckUpdates}
+            disabled={checkingUpdates || loading}
+          >
+            {checkingUpdates ? "Checking..." : "Check for Updates"}
+          </button>
+          {updateInfo && updateInfo.update_available && (
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowUpdateModal(true)}
+              style={{ marginLeft: "0.5rem" }}
+            >
+              Download & Install Update
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showUpdateModal && updateInfo && (
+        <UpdateModal
+          updateInfo={updateInfo}
+          onClose={() => setShowUpdateModal(false)}
+          onUpdateComplete={() => {
+            setShowUpdateModal(false);
+            // App will close, so no need to update state
+          }}
+          showError={showError}
+          showSuccess={showSuccess}
+        />
+      )}
       <div className="settings-section">
         <button className="btn btn-secondary" onClick={onRefresh} disabled={loading}>
           Refresh Data

@@ -2,7 +2,7 @@
  * Main Application Component
  * Refactored into smaller, organized components
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTauriReady } from "./hooks/useTauriReady";
 import { usePhpVersions } from "./hooks/usePhpVersions";
 import { useVersionOperations } from "./hooks/useVersionOperations";
@@ -97,6 +97,38 @@ function App() {
 
   // Wait for Tauri to be ready
   useTauriReady(loadData);
+
+  // Check for updates on startup (after app is ready)
+  useEffect(() => {
+    let updateCheckTimeout;
+    
+    const checkForUpdates = async () => {
+      try {
+        // Wait a bit for the app to fully initialize
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        const updateInfo = await phpvmApi.checkForUpdates();
+        if (updateInfo && updateInfo.update_available) {
+          showInfo(
+            `Update available! Version ${updateInfo.latest_version} is now available. Check Settings to download.`,
+            10000
+          );
+        }
+      } catch (err) {
+        // Silently fail - update check is not critical
+        console.error("Failed to check for updates on startup:", err);
+      }
+    };
+    
+    // Check for updates after a short delay
+    updateCheckTimeout = setTimeout(checkForUpdates, 1000);
+    
+    return () => {
+      if (updateCheckTimeout) {
+        clearTimeout(updateCheckTimeout);
+      }
+    };
+  }, [showInfo]);
 
   // Handle PATH setting
   const handleSetPath = async () => {
@@ -194,6 +226,8 @@ function App() {
               showInfo("Data refreshed");
             }}
             showSuccess={showSuccess}
+            showError={showError}
+            showInfo={showInfo}
           />
         )}
       </main>

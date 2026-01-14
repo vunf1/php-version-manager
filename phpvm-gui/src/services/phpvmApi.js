@@ -158,4 +158,32 @@ export const phpvmApi = {
   clearAllCache: async () => {
     return await invoke("clear_all_cache");
   },
+
+  /**
+   * Get current application version
+   */
+  getAppVersion: async () => {
+    return await invoke("get_app_version");
+  },
+
+  /**
+   * Check for updates
+   */
+  checkForUpdates: async () => {
+    return await invoke("check_for_updates");
+  },
+
+  /**
+   * Download update
+   */
+  downloadUpdate: async (downloadUrl) => {
+    return await invoke("download_update", { downloadUrl });
+  },
+
+  /**
+   * Apply update (replace current executable)
+   */
+  applyUpdate: async (updateFilePath) => {
+    return await invoke("apply_update", { updateFilePath });
+  },
 };
