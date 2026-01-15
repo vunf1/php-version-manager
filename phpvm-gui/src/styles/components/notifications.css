@@ -79,11 +79,77 @@
   color: #2196f3;
 }
 
-.notification-message {
+.notification-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.notification-message {
   font-size: 0.8125rem;
   color: #212121;
   line-height: 1.4;
+}
+
+.notification-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+
+.notification-action-btn {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.notification-action-btn:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.notification-info .notification-action-btn {
+  color: #2196f3;
+  border-color: #2196f3;
+}
+
+.notification-info .notification-action-btn:hover {
+  background-color: rgba(33, 150, 243, 0.1);
+}
+
+.notification-success .notification-action-btn {
+  color: #4caf50;
+  border-color: #4caf50;
+}
+
+.notification-success .notification-action-btn:hover {
+  background-color: rgba(76, 175, 80, 0.1);
+}
+
+.notification-warning .notification-action-btn {
+  color: #ff9800;
+  border-color: #ff9800;
+}
+
+.notification-warning .notification-action-btn:hover {
+  background-color: rgba(255, 152, 0, 0.1);
+}
+
+.notification-error .notification-action-btn {
+  color: #d32f2f;
+  border-color: #d32f2f;
+}
+
+.notification-error .notification-action-btn:hover {
+  background-color: rgba(211, 47, 47, 0.1);
 }
 
 .notification-close {
