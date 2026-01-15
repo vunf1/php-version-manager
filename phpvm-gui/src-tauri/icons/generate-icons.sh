@@ -8,10 +8,7 @@ create_minimal_png() {
     
     # Minimal valid PNG: 1x1 transparent pixel (base64 encoded)
     # This is a valid PNG that Tauri can use
-    python3 << EOF || {
-        echo "Error: Failed to create $filename using Python"
-        exit 1
-    }
+    if ! python3 << EOF; then
 import struct
 import zlib
 import sys
@@ -50,6 +47,9 @@ def create_png(size, filename):
 
 create_png($size, '$filename')
 EOF
+        echo "Error: Failed to create $filename using Python" >&2
+        exit 1
+    fi
 }
 
 cd "$(dirname "$0")"
