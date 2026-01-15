@@ -13,6 +13,7 @@ export const NotificationContainer = ({ notifications, onDismiss }) => {
           id={notification.id}
           message={notification.message}
           type={notification.type}
+          actions={notification.actions}
           onDismiss={onDismiss}
         />
       ))}

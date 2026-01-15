@@ -186,4 +186,11 @@ export const phpvmApi = {
   applyUpdate: async (updateFilePath) => {
     return await invoke("apply_update", { updateFilePath });
   },
+
+  /**
+   * Open URL in default browser
+   */
+  openUrl: async (url) => {
+    return await invoke("open_url", { url });
+  },
 };

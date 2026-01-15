@@ -18,12 +18,18 @@ import { ThreadSafeModal } from "./components/modals/ThreadSafeModal";
 import { VariantSelectModal } from "./components/modals/VariantSelectModal";
 import { DeleteConfirmModal } from "./components/modals/DeleteConfirmModal";
 import { ProgressModal } from "./components/modals/ProgressModal";
+import { UpdateModal } from "./components/modals/UpdateModal";
+import { AboutModal } from "./components/modals/AboutModal";
 import { phpvmApi } from "./services/phpvmApi";
 import "./styles/index.css";
 
 function App() {
   const [activeTab, setActiveTab] = useState("installed");
   const [installVersion, setInstallVersion] = useState("");
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
 
   // Notification system
   const {
@@ -107,11 +113,29 @@ function App() {
         // Wait a bit for the app to fully initialize
         await new Promise(resolve => setTimeout(resolve, 2000));
         
-        const updateInfo = await phpvmApi.checkForUpdates();
-        if (updateInfo && updateInfo.update_available) {
+        const info = await phpvmApi.checkForUpdates();
+        if (info && info.update_available) {
+          setUpdateInfo(info);
+          
+          // Show notification with action buttons
           showInfo(
-            `Update available! Version ${updateInfo.latest_version} is now available. Check Settings to download.`,
-            10000
+            `Update available! Version ${info.latest_version} is now available.`,
+            0, // Don't auto-dismiss
+            [
+              {
+                label: "Update Now",
+                onClick: () => {
+                  setShowUpdateModal(true);
+                }
+              },
+              {
+                label: "Release Notes",
+                onClick: () => {
+                  setActiveTab("settings");
+                  setShowReleaseNotes(true);
+                }
+              }
+            ]
           );
         }
       } catch (err) {
@@ -228,6 +252,11 @@ function App() {
             showSuccess={showSuccess}
             showError={showError}
             showInfo={showInfo}
+            updateInfo={updateInfo}
+            onUpdateInfoChange={setUpdateInfo}
+            showReleaseNotes={showReleaseNotes}
+            onShowReleaseNotesChange={setShowReleaseNotes}
+            onShowAbout={setShowAboutModal}
           />
         )}
       </main>
@@ -293,6 +322,25 @@ function App() {
           type="delete"
           version={deletingVersion}
           progress={deleteProgress}
+        />
+      )}
+
+      {showUpdateModal && updateInfo && (
+        <UpdateModal
+          updateInfo={updateInfo}
+          onClose={() => setShowUpdateModal(false)}
+          onUpdateComplete={() => {
+            setShowUpdateModal(false);
+            // App will close, so no need to update state
+          }}
+          showError={showError}
+          showSuccess={showSuccess}
+        />
+      )}
+
+      {showAboutModal && (
+        <AboutModal
+          onClose={() => setShowAboutModal(false)}
         />
       )}
     </div>

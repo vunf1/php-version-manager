@@ -10,7 +10,7 @@ export const useNotifications = () => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
-  const showNotification = useCallback((message, type = "info", duration = null) => {
+  const showNotification = useCallback((message, type = "info", duration = null, actions = null) => {
     const id = Date.now() + Math.random();
     
     // Errors and warnings stay until manually dismissed
@@ -24,11 +24,17 @@ export const useNotifications = () => {
       }
     }
     
+    // If notification has actions, don't auto-dismiss
+    if (actions && actions.length > 0) {
+      finalDuration = 0;
+    }
+    
     const notification = {
       id,
       message,
       type, // 'success', 'error', 'warning', 'info'
       duration: finalDuration,
+      actions, // Array of { label, onClick } objects
     };
 
     setNotifications((prev) => [...prev, notification]);
@@ -43,22 +49,22 @@ export const useNotifications = () => {
     return id;
   }, [dismissNotification]);
 
-  const showSuccess = useCallback((message, duration) => {
-    return showNotification(message, "success", duration);
+  const showSuccess = useCallback((message, duration, actions) => {
+    return showNotification(message, "success", duration, actions);
   }, [showNotification]);
 
-  const showError = useCallback((message, duration) => {
+  const showError = useCallback((message, duration, actions) => {
     // Errors always stay until manually dismissed unless explicitly overridden
-    return showNotification(message, "error", duration === undefined ? 0 : duration);
+    return showNotification(message, "error", duration === undefined ? 0 : duration, actions);
   }, [showNotification]);
 
-  const showWarning = useCallback((message, duration) => {
+  const showWarning = useCallback((message, duration, actions) => {
     // Warnings always stay until manually dismissed unless explicitly overridden
-    return showNotification(message, "warning", duration === undefined ? 0 : duration);
+    return showNotification(message, "warning", duration === undefined ? 0 : duration, actions);
   }, [showNotification]);
 
-  const showInfo = useCallback((message, duration) => {
-    return showNotification(message, "info", duration);
+  const showInfo = useCallback((message, duration, actions) => {
+    return showNotification(message, "info", duration, actions);
   }, [showNotification]);
 
   return {

@@ -1,8 +1,9 @@
 /**
  * Installed Versions Tab Component
  */
+import { useMemo } from "react";
 import { VersionCard } from "../VersionCard";
-import { groupVersionsByBase, isTS, isNTS } from "../../utils/versionUtils";
+import { groupVersionsByBase, isTS, isNTS, compareVersions } from "../../utils/versionUtils";
 
 export const InstalledVersionsTab = ({
   installedVersions,
@@ -14,6 +15,31 @@ export const InstalledVersionsTab = ({
   onRemove,
   disabled,
 }) => {
+  // Sort versions: active first, then by version (newest first)
+  const sortedVersions = useMemo(() => {
+    const groupedVersions = groupVersionsByBase(installedVersions);
+    const entries = Array.from(groupedVersions.entries());
+    
+    // Separate active and non-active versions
+    const activeEntries = [];
+    const nonActiveEntries = [];
+    
+    entries.forEach(([baseVersion, variants]) => {
+      const isActive = activeVersion === baseVersion || variants.some(v => activeVersion === v);
+      if (isActive) {
+        activeEntries.push([baseVersion, variants]);
+      } else {
+        nonActiveEntries.push([baseVersion, variants]);
+      }
+    });
+    
+    // Sort non-active versions by version number (newest first)
+    nonActiveEntries.sort(([v1], [v2]) => compareVersions(v1, v2));
+    
+    // Combine: active first, then sorted non-active
+    return [...activeEntries, ...nonActiveEntries];
+  }, [installedVersions, activeVersion]);
+
   if (loading) {
     return <div className="loading">Loading installed versions...</div>;
   }
@@ -27,13 +53,10 @@ export const InstalledVersionsTab = ({
     );
   }
 
-  const groupedVersions = groupVersionsByBase(installedVersions);
-
   return (
     <div className="tab-content">
-      <h2>Installed PHP Versions</h2>
       <div className="version-grid">
-        {Array.from(groupedVersions.entries()).map(([baseVersion, variants]) => {
+        {sortedVersions.map(([baseVersion, variants]) => {
           const tsVariant = variants.find(v => isTS(v));
           const ntsVariant = variants.find(v => isNTS(v));
           const primaryVariant = tsVariant || ntsVariant || variants[0];

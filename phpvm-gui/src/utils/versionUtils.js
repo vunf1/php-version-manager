@@ -72,3 +72,33 @@ export const getVariantLabel = (version) => {
   if (isNTS(version)) return 'NTS';
   return '';
 };
+
+/**
+ * Compare two version strings for sorting
+ * Returns: negative if v1 < v2, positive if v1 > v2, 0 if equal
+ * Sorts in descending order (newest first)
+ */
+export const compareVersions = (v1, v2) => {
+  const parseVersionParts = (versionStr) => {
+    const { baseVersion } = parseVersion(versionStr);
+    const parts = baseVersion.split('.').map(Number);
+    // Ensure we have at least major.minor.patch
+    while (parts.length < 3) {
+      parts.push(0);
+    }
+    return parts;
+  };
+
+  const parts1 = parseVersionParts(v1);
+  const parts2 = parseVersionParts(v2);
+
+  // Compare major, minor, patch
+  for (let i = 0; i < 3; i++) {
+    if (parts1[i] !== parts2[i]) {
+      // Return negative for descending order (newer first)
+      return parts2[i] - parts1[i];
+    }
+  }
+
+  return 0;
+};

@@ -18,12 +18,32 @@ export const SettingsTab = ({
   showSuccess,
   showError,
   showInfo,
+  updateInfo: externalUpdateInfo,
+  onUpdateInfoChange,
+  showReleaseNotes,
+  onShowReleaseNotesChange,
+  onShowAbout,
 }) => {
   const [copiedPath, setCopiedPath] = useState(null);
   const [appVersion, setAppVersion] = useState("Loading...");
   const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updateInfo, setUpdateInfo] = useState(externalUpdateInfo || null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  
+  // Sync external updateInfo with internal state
+  useEffect(() => {
+    if (externalUpdateInfo) {
+      setUpdateInfo(externalUpdateInfo);
+    }
+  }, [externalUpdateInfo]);
+  
+  // Update external state when internal state changes
+  const handleUpdateInfoChange = (newInfo) => {
+    setUpdateInfo(newInfo);
+    if (onUpdateInfoChange) {
+      onUpdateInfoChange(newInfo);
+    }
+  };
 
   // Load app version on mount
   useEffect(() => {
@@ -41,10 +61,10 @@ export const SettingsTab = ({
 
   const handleCheckUpdates = async () => {
     setCheckingUpdates(true);
-    setUpdateInfo(null);
+    handleUpdateInfoChange(null);
     try {
       const info = await phpvmApi.checkForUpdates();
-      setUpdateInfo(info);
+      handleUpdateInfoChange(info);
       if (info.update_available) {
         showInfo(
           `Update available! Current: ${info.current_version}, Latest: ${info.latest_version}`,
@@ -192,21 +212,23 @@ export const SettingsTab = ({
             <div className="setting-value" style={{ color: "#4caf50", fontWeight: "bold" }}>
               Version {updateInfo.latest_version} is available
               {updateInfo.release_url && (
-                <a
-                  href={updateInfo.release_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ marginLeft: "0.5rem", color: "#2196f3" }}
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    if (onShowReleaseNotesChange) {
+                      onShowReleaseNotesChange(true);
+                    }
+                  }}
+                  style={{ marginLeft: "0.5rem", fontSize: "0.75rem", padding: "0.25rem 0.5rem" }}
                 >
-                  (View Release)
-                </a>
+                  View Release Notes
+                </button>
               )}
             </div>
           </div>
         )}
       </div>
       <div className="settings-section">
-        <h3>Updates</h3>
         <div className="setting-item">
           <button
             className="btn btn-primary"
@@ -239,9 +261,55 @@ export const SettingsTab = ({
           showSuccess={showSuccess}
         />
       )}
+      
+      {showReleaseNotes && updateInfo && updateInfo.release_url && (
+        <div className="settings-section" style={{ marginTop: "1rem" }}>
+          <h3>Release Notes</h3>
+          <div className="setting-item">
+            <p style={{ marginBottom: "0.5rem", fontSize: "0.8125rem", color: "#757575" }}>
+              Version {updateInfo.latest_version} Release Notes
+            </p>
+            <div style={{ marginBottom: "0.5rem" }}>
+              <a
+                href={updateInfo.release_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#2196f3", textDecoration: "underline" }}
+              >
+                View full release notes on GitHub
+              </a>
+            </div>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                if (onShowReleaseNotesChange) {
+                  onShowReleaseNotesChange(false);
+                }
+              }}
+              style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem" }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+      
       <div className="settings-section">
         <button className="btn btn-secondary" onClick={onRefresh} disabled={loading}>
           Refresh Data
+        </button>
+      </div>
+
+      <div className="settings-section">
+        <button
+          className="btn btn-secondary"
+          onClick={() => {
+            if (onShowAbout) {
+              onShowAbout(true);
+            }
+          }}
+        >
+          About
         </button>
       </div>
     </div>

@@ -1,7 +1,7 @@
 /**
  * Individual notification component
  */
-export const Notification = ({ id, message, type = "info", onDismiss }) => {
+export const Notification = ({ id, message, type = "info", actions, onDismiss }) => {
   const getIcon = () => {
     switch (type) {
       case "success":
@@ -31,10 +31,32 @@ export const Notification = ({ id, message, type = "info", onDismiss }) => {
     }
   };
 
+  const handleActionClick = (action) => {
+    if (action.onClick) {
+      action.onClick();
+    }
+    // Don't dismiss notification when action is clicked (let user dismiss manually)
+  };
+
   return (
     <div className={`notification notification-${type}`}>
       <div className="notification-icon">{getIcon()}</div>
-      <div className="notification-message">{message}</div>
+      <div className="notification-content">
+        <div className="notification-message">{message}</div>
+        {actions && actions.length > 0 && (
+          <div className="notification-actions">
+            {actions.map((action, index) => (
+              <button
+                key={index}
+                className="notification-action-btn"
+                onClick={() => handleActionClick(action)}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <button
         className="notification-close"
         onClick={() => onDismiss(id)}
