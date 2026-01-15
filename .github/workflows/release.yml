@@ -93,10 +93,22 @@ jobs:
           # Create artifacts directory
           New-Item -ItemType Directory -Force -Path "artifacts/windows" | Out-Null
           
+          # Get version from package.json
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $standaloneName = "PHP Version Manager_${version}_x64.exe"
+          
+          # Copy standalone executable and rename it
+          if (Test-Path "..\target\release\phpvm-gui.exe") {
+            Copy-Item "..\target\release\phpvm-gui.exe" -Destination "artifacts/windows\$standaloneName" -Force
+            Write-Host "Copied standalone executable: $standaloneName"
+          } else {
+            Write-Host "Standalone executable not found"
+          }
+          
           # Copy MSI files
           if (Test-Path "..\target\release\bundle\msi\*.msi") {
             Copy-Item "..\target\release\bundle\msi\*.msi" -Destination "artifacts/windows/" -Force
-            Get-ChildItem "artifacts/windows/*.msi" | ForEach-Object { Write-Host "Uploaded: $($_.Name)" }
+            Get-ChildItem "artifacts/windows/*.msi" | ForEach-Object { Write-Host "Copied: $($_.Name)" }
           } else {
             Write-Host "No MSI files found"
           }
@@ -104,13 +116,14 @@ jobs:
           # Copy NSIS installer files
           if (Test-Path "..\target\release\bundle\nsis\*.exe") {
             Copy-Item "..\target\release\bundle\nsis\*.exe" -Destination "artifacts/windows/" -Force
-            Get-ChildItem "artifacts/windows/*.exe" | ForEach-Object { Write-Host "Uploaded: $($_.Name)" }
+            Get-ChildItem "artifacts/windows/*-setup.exe" | ForEach-Object { Write-Host "Copied: $($_.Name)" }
           } else {
             Write-Host "No NSIS installer files found"
           }
           
           # List all files ready for upload
-          Get-ChildItem "artifacts/windows" -File | ForEach-Object { Write-Host "Ready to upload: $($_.FullName)" }
+          Write-Host "Files ready for upload:"
+          Get-ChildItem "artifacts/windows" -File | ForEach-Object { Write-Host "  - $($_.Name)" }
       
       - name: Upload Windows artifacts to GitHub
         uses: actions/upload-artifact@v4
