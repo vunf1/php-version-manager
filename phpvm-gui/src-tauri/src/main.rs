@@ -44,7 +44,8 @@ fn main() {
             get_app_version,
             check_for_updates,
             download_update,
-            apply_update
+            apply_update,
+            open_url
         ])
         .setup(|_app| {
             // App initialization code can go here

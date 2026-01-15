@@ -42,32 +42,113 @@ fn matches_app_name(name: &str) -> bool {
     name_lower.contains("php_version_manager")
 }
 
-/// Detect Windows asset (prefers .exe NSIS installer, falls back to .msi)
+/// Check if we're running from a standalone executable (not an installer)
+#[cfg(windows)]
+fn is_standalone_executable() -> bool {
+    if let Ok(current_exe) = std::env::current_exe() {
+        let exe_name = current_exe.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        
+        // If exe name contains "setup" or "installer", we're likely from an installer
+        if exe_name.contains("setup") || exe_name.contains("installer") {
+            return false;
+        }
+        
+        // Check if we're in Program Files (typical installer location)
+        let exe_path = current_exe.to_string_lossy().to_lowercase();
+        if exe_path.contains("program files") || exe_path.contains("programfiles") {
+            return false;
+        }
+        
+        // Otherwise, assume standalone
+        return true;
+    }
+    false
+}
+
+/// Detect Windows asset (prefers standalone executable if running standalone, otherwise prefers installer)
 #[cfg(windows)]
 fn detect_platform_asset(assets: &[GitHubAsset]) -> Option<String> {
-    // First try to find NSIS installer (.exe with setup or x64-setup in name)
-    assets.iter()
-        .find(|asset| {
-            let name = asset.name.to_lowercase();
-            name.ends_with(".exe") && 
-            (name.contains("setup") || name.contains("x64-setup")) &&
-            matches_app_name(&asset.name)
-        })
-        .map(|asset| asset.browser_download_url.clone())
-        .or_else(|| {
-            // Fallback to MSI installer
-            assets.iter()
-                .find(|asset| {
-                    asset.name.ends_with(".msi") && matches_app_name(&asset.name)
-                })
-                .map(|asset| asset.browser_download_url.clone())
-        })
-        .or_else(|| {
-            // Last resort: any .exe file
-            assets.iter()
-                .find(|asset| asset.name.ends_with(".exe") && matches_app_name(&asset.name))
-                .map(|asset| asset.browser_download_url.clone())
-        })
+    let is_standalone = is_standalone_executable();
+    
+    if is_standalone {
+        // Running from standalone executable - prioritize standalone executables
+        eprintln!("[Update] Detected standalone executable, looking for standalone update...");
+        
+        // First try to find standalone executable (exe without setup/installer/msi keywords)
+        let standalone_url = assets.iter()
+            .find(|asset| {
+                let name = asset.name.to_lowercase();
+                name.ends_with(".exe") && 
+                !name.contains("setup") && 
+                !name.contains("installer") &&
+                !name.contains("x64-setup") &&
+                matches_app_name(&asset.name)
+            })
+            .map(|asset| asset.browser_download_url.clone());
+        
+        if standalone_url.is_some() {
+            eprintln!("[Update] Found standalone executable asset");
+            return standalone_url;
+        }
+        
+        // Fallback: any .exe file (might be standalone with different naming)
+        eprintln!("[Update] No explicit standalone exe found, trying any .exe file...");
+        let any_exe_url = assets.iter()
+            .find(|asset| {
+                let name = asset.name.to_lowercase();
+                name.ends_with(".exe") && matches_app_name(&asset.name)
+            })
+            .map(|asset| asset.browser_download_url.clone());
+        
+        if any_exe_url.is_some() {
+            eprintln!("[Update] Found .exe asset (will check if installer or standalone during apply)");
+            return any_exe_url;
+        }
+        
+        // Last resort: try installers (user can install manually or we'll try to launch it)
+        eprintln!("[Update] No standalone executable found, checking for installers as fallback...");
+        // Try to find any installer as last resort
+        assets.iter()
+            .find(|asset| {
+                let name = asset.name.to_lowercase();
+                (name.ends_with(".exe") && (name.contains("setup") || name.contains("x64-setup"))) ||
+                name.ends_with(".msi")
+            })
+            .map(|asset| {
+                eprintln!("[Update] Found installer asset (user may need to install manually): {}", asset.name);
+                asset.browser_download_url.clone()
+            })
+    } else {
+        // Running from installer - prioritize installers
+        eprintln!("[Update] Detected installed version, looking for installer update...");
+        
+        // First try to find NSIS installer (.exe with setup or x64-setup in name)
+        assets.iter()
+            .find(|asset| {
+                let name = asset.name.to_lowercase();
+                name.ends_with(".exe") && 
+                (name.contains("setup") || name.contains("x64-setup")) &&
+                matches_app_name(&asset.name)
+            })
+            .map(|asset| asset.browser_download_url.clone())
+            .or_else(|| {
+                // Fallback to MSI installer
+                assets.iter()
+                    .find(|asset| {
+                        asset.name.ends_with(".msi") && matches_app_name(&asset.name)
+                    })
+                    .map(|asset| asset.browser_download_url.clone())
+            })
+            .or_else(|| {
+                // Last resort: any .exe file
+                assets.iter()
+                    .find(|asset| asset.name.ends_with(".exe") && matches_app_name(&asset.name))
+                    .map(|asset| asset.browser_download_url.clone())
+            })
+    }
 }
 
 /// Detect Linux asset (prefers AppImage, then .deb, then .rpm)
@@ -131,6 +212,16 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
     
     // Find platform-specific asset
     let download_url = detect_platform_asset(&release.assets);
+    
+    if download_url.is_none() {
+        eprintln!("[Update] Warning: No suitable asset found for this platform");
+        eprintln!("[Update] Available assets:");
+        for asset in &release.assets {
+            eprintln!("[Update]   - {}", asset.name);
+        }
+    } else {
+        eprintln!("[Update] Found update asset: {}", download_url.as_ref().unwrap());
+    }
     
     Ok(UpdateInfo {
         current_version,
@@ -273,6 +364,18 @@ pub async fn download_update(download_url: &str, mut progress_callback: Option<B
         }
     }
     
+    // Ensure final progress callback is sent (100% complete)
+    if let Some(ref mut callback) = progress_callback {
+        let elapsed = start_time.elapsed().as_secs_f64();
+        let speed_mbps = if elapsed > 0.0 {
+            (downloaded as f64 / 1_048_576.0) / elapsed
+        } else {
+            0.0
+        };
+        callback(downloaded, total_size, speed_mbps);
+    }
+    
+    eprintln!("[Update] Download completed: {} bytes", downloaded);
     Ok(temp_file)
 }
 
@@ -306,7 +409,29 @@ pub fn apply_update(update_file: PathBuf) -> Result<(), String> {
         return Ok(());
     }
     
-    // Handle EXE installer or executable
+    // Check if this is an installer or standalone executable
+    let update_file_name = update_file.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    
+    let is_installer = update_file_name.contains("setup") || 
+                       update_file_name.contains("installer") ||
+                       update_file_name.contains("x64-setup");
+    
+    if is_installer {
+        // This is an installer - launch it
+        eprintln!("[Update] Detected installer executable, launching installation...");
+        Command::new(&update_file)
+            .spawn()
+            .map_err(|e| format!("Failed to launch installer: {}", e))?;
+        eprintln!("[Update] Installer launched successfully");
+        return Ok(());
+    }
+    
+    // This is a standalone executable - replace current exe
+    eprintln!("[Update] Detected standalone executable, will replace current exe...");
+    
     // Create a batch script that will replace the exe after the app closes
     let temp_dir = std::env::temp_dir().join("phpvm-update");
     std::fs::create_dir_all(&temp_dir)

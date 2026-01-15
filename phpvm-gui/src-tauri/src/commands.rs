@@ -318,19 +318,36 @@ fn hash_url(url: &str) -> String {
 }
 
 // Helper function to determine VS/VC version based on PHP version
+// PHP 8.4+ uses vs17 (Visual Studio 2017/2019)
+// PHP 8.0-8.3 uses vs16 (Visual Studio 2016)
+// PHP 7.4 uses vc15 (Visual C++ 2017) or vs16
+// PHP 7.2-7.3 uses VC15 (Visual C++ 2017) - archived, capital VC
+// PHP 7.0-7.1 uses VC14 (Visual C++ 2015) - archived, capital VC
+// PHP 5.6 uses VC11 (Visual C++ 2012) - archived, capital VC
 fn get_vs_version(major: u8, minor: u8) -> &'static str {
-    // PHP 8.4+ uses vs17 (Visual Studio 2017)
-    // PHP 8.0-8.3 uses vs16 (Visual Studio 2016)
-    // PHP 7.x uses vc15 (Visual C++ 2015)
-    // PHP 5.x and earlier use vc15 (fallback)
     if major > 8 || (major == 8 && minor >= 4) {
         "vs17"
     } else if major == 8 {
         "vs16"
     } else if major == 7 {
-        "vc15"
+        if minor >= 4 {
+            "vc15"
+        } else if minor >= 2 {
+            "VC15"
+        } else {
+            "VC14"
+        }
     } else {
-        "vc15" // Fallback for PHP 5.x and earlier
+        "VC11" // PHP 5.6 and earlier
+    }
+}
+
+// Helper function to get base URL for PHP version
+fn get_base_url(major: u8, minor: u8) -> &'static str {
+    if major < 7 || (major == 7 && minor < 4) {
+        "https://windows.php.net/downloads/releases/archives/"
+    } else {
+        "https://windows.php.net/downloads/releases/"
     }
 }
 
@@ -346,6 +363,87 @@ pub async fn list_cached_files(state: State<'_, AppState>) -> Result<Vec<CachedF
     let manager = state.manager.lock().await;
     let available_versions = manager.list_available().await.map_err(|e| e.to_string())?;
     drop(manager);
+    
+    // Build a hash map of hash -> version once (O(m * p) instead of O(n * m * p))
+    // This dramatically improves performance when there are many cached files
+    use std::collections::HashMap;
+    let mut hash_to_version: HashMap<String, String> = HashMap::new();
+    
+    for version_str in &available_versions {
+        // Parse version
+        let parts: Vec<&str> = version_str.split('.').collect();
+        if parts.len() >= 3 {
+            if let (Ok(major), Ok(minor), Ok(_patch)) = (
+                parts[0].parse::<u8>(),
+                parts[1].parse::<u8>(),
+                parts[2].parse::<u8>(),
+            ) {
+                let vs_version = get_vs_version(major, minor);
+                let base_url = get_base_url(major, minor);
+                
+                // Try TS URL
+                let ts_url = format!(
+                    "{}php-{}-Win32-{}-x64.zip",
+                    base_url, version_str, vs_version
+                );
+                hash_to_version.insert(hash_url(&ts_url), format!("{}-ts", version_str));
+                
+                // Try NTS URL
+                let nts_url = format!(
+                    "{}php-{}-nts-Win32-{}-x64.zip",
+                    base_url, version_str, vs_version
+                );
+                hash_to_version.insert(hash_url(&nts_url), format!("{}-nts", version_str));
+                
+                // Try fallback versions
+                // For vs17, try vs16 as fallback
+                if vs_version == "vs17" {
+                    let fallback_base = "https://windows.php.net/downloads/releases/";
+                    let ts_url_vs16 = format!(
+                        "{}php-{}-Win32-vs16-x64.zip",
+                        fallback_base, version_str
+                    );
+                    hash_to_version.insert(hash_url(&ts_url_vs16), format!("{}-ts", version_str));
+                    
+                    let nts_url_vs16 = format!(
+                        "{}php-{}-nts-Win32-vs16-x64.zip",
+                        fallback_base, version_str
+                    );
+                    hash_to_version.insert(hash_url(&nts_url_vs16), format!("{}-nts", version_str));
+                }
+                // For vs16, try vc15 as fallback (for PHP 7.4)
+                if vs_version == "vs16" {
+                    let fallback_base = "https://windows.php.net/downloads/releases/";
+                    let ts_url_vc15 = format!(
+                        "{}php-{}-Win32-vc15-x64.zip",
+                        fallback_base, version_str
+                    );
+                    hash_to_version.insert(hash_url(&ts_url_vc15), format!("{}-ts", version_str));
+                    
+                    let nts_url_vc15 = format!(
+                        "{}php-{}-nts-Win32-vc15-x64.zip",
+                        fallback_base, version_str
+                    );
+                    hash_to_version.insert(hash_url(&nts_url_vc15), format!("{}-nts", version_str));
+                }
+                // For VC15 (PHP 7.2-7.3), try VC14 as fallback
+                if vs_version == "VC15" {
+                    let fallback_base = "https://windows.php.net/downloads/releases/archives/";
+                    let ts_url_vc14 = format!(
+                        "{}php-{}-Win32-VC14-x64.zip",
+                        fallback_base, version_str
+                    );
+                    hash_to_version.insert(hash_url(&ts_url_vc14), format!("{}-ts", version_str));
+                    
+                    let nts_url_vc14 = format!(
+                        "{}php-{}-nts-Win32-VC14-x64.zip",
+                        fallback_base, version_str
+                    );
+                    hash_to_version.insert(hash_url(&nts_url_vc14), format!("{}-nts", version_str));
+                }
+            }
+        }
+    }
     
     let mut cached_files = Vec::new();
     
@@ -374,84 +472,8 @@ pub async fn list_cached_files(state: State<'_, AppState>) -> Result<Vec<CachedF
                                 Err(_) => "0".to_string(),
                             };
                             
-                            // Try to match hash to a version
-                            let mut matched_version: Option<String> = None;
-                            
-                            for version_str in &available_versions {
-                                // Parse version
-                                let parts: Vec<&str> = version_str.split('.').collect();
-                                if parts.len() >= 3 {
-                                    if let (Ok(major), Ok(minor), Ok(_patch)) = (
-                                        parts[0].parse::<u8>(),
-                                        parts[1].parse::<u8>(),
-                                        parts[2].parse::<u8>(),
-                                    ) {
-                                        let vs_version = get_vs_version(major, minor);
-                                        
-                                        // Try TS URL
-                                        let ts_url = format!(
-                                            "https://windows.php.net/downloads/releases/php-{}-Win32-{}-x64.zip",
-                                            version_str, vs_version
-                                        );
-                                        if hash_url(&ts_url) == hash {
-                                            matched_version = Some(format!("{}-ts", version_str));
-                                            break;
-                                        }
-                                        
-                                        // Try NTS URL
-                                        let nts_url = format!(
-                                            "https://windows.php.net/downloads/releases/php-{}-nts-Win32-{}-x64.zip",
-                                            version_str, vs_version
-                                        );
-                                        if hash_url(&nts_url) == hash {
-                                            matched_version = Some(format!("{}-nts", version_str));
-                                            break;
-                                        }
-                                        
-                                        // Try fallback versions if primary doesn't match
-                                        // For vs17, try vs16 as fallback
-                                        if vs_version == "vs17" {
-                                            let ts_url_vs16 = format!(
-                                                "https://windows.php.net/downloads/releases/php-{}-Win32-vs16-x64.zip",
-                                                version_str
-                                            );
-                                            if hash_url(&ts_url_vs16) == hash {
-                                                matched_version = Some(format!("{}-ts", version_str));
-                                                break;
-                                            }
-                                            
-                                            let nts_url_vs16 = format!(
-                                                "https://windows.php.net/downloads/releases/php-{}-nts-Win32-vs16-x64.zip",
-                                                version_str
-                                            );
-                                            if hash_url(&nts_url_vs16) == hash {
-                                                matched_version = Some(format!("{}-nts", version_str));
-                                                break;
-                                            }
-                                        }
-                                        // For vs16, try vc15 as fallback (for PHP 7.x)
-                                        if vs_version == "vs16" {
-                                            let ts_url_vc15 = format!(
-                                                "https://windows.php.net/downloads/releases/php-{}-Win32-vc15-x64.zip",
-                                                version_str
-                                            );
-                                            if hash_url(&ts_url_vc15) == hash {
-                                                matched_version = Some(format!("{}-ts", version_str));
-                                                break;
-                                            }
-                                            
-                                            let nts_url_vc15 = format!(
-                                                "https://windows.php.net/downloads/releases/php-{}-nts-Win32-vc15-x64.zip",
-                                                version_str
-                                            );
-                                            if hash_url(&nts_url_vc15) == hash {
-                                                matched_version = Some(format!("{}-nts", version_str));
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            // O(1) lookup instead of O(m * p) iteration
+                            let matched_version = hash_to_version.get(hash).cloned();
                             
                             cached_files.push(CachedFile {
                                 hash: hash.to_string(),
@@ -584,9 +606,23 @@ pub async fn download_update(
     
     let update_file = update::download_update(&download_url, Some(progress_callback)).await?;
     
+    // Send final progress update (100% complete) before closing channel
+    let file_size = std::fs::metadata(&update_file)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    
+    // Send final update
+    if let Err(e) = tx.send((file_size, file_size, 0.0)) {
+        eprintln!("[Update Download] Failed to send final progress: {}", e);
+    }
+    
+    // Give a small delay to ensure the final event is processed
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    
     // Drop the sender to close the channel when done
     drop(tx);
     
+    eprintln!("[Update Download] Download complete: {}", update_file.display());
     Ok(update_file.to_string_lossy().to_string())
 }
 
@@ -598,4 +634,35 @@ pub async fn apply_update(update_file_path: String) -> Result<(), String> {
     }
     
     update::apply_update(update_file)
+}
+
+#[tauri::command]
+pub async fn open_url(url: String) -> Result<(), String> {
+    use std::process::Command;
+    
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
+    }
+    
+    Ok(())
 }
