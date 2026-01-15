@@ -1,6 +1,6 @@
 {
   "name": "phpvm-gui",
-  "version": "0.1.2",
+  "version": "0.1.2.1",
   "description": "PHP Version Manager GUI",
   "type": "module",
   "scripts": {
