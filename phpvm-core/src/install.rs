@@ -79,18 +79,27 @@ impl Installer {
 
         let url = source_url.map(|s| s.to_string()).unwrap_or_else(|| {
             // Determine Visual Studio/Visual C++ version based on PHP version
-            // PHP 8.4+ uses vs17 (Visual Studio 2017)
+            // PHP 8.4+ uses vs17 (Visual Studio 2017/2019)
             // PHP 8.0-8.3 uses vs16 (Visual Studio 2016)
-            // PHP 7.x uses vc15 (Visual C++ 2015)
-            let vs_version = if version.major > 8 || (version.major == 8 && version.minor >= 4) {
-                "vs17"
+            // PHP 7.4 uses vc15 (Visual C++ 2017) or vs16
+            // PHP 7.2-7.3 uses VC15 (Visual C++ 2017) - archived, capital VC
+            // PHP 7.0-7.1 uses VC14 (Visual C++ 2015) - archived, capital VC
+            // PHP 5.6 uses VC11 (Visual C++ 2012) - archived, capital VC
+            let (vs_version, base_url) = if version.major > 8 || (version.major == 8 && version.minor >= 4) {
+                ("vs17", "https://windows.php.net/downloads/releases/")
             } else if version.major == 8 {
-                "vs16"
+                ("vs16", "https://windows.php.net/downloads/releases/")
             } else if version.major == 7 {
-                "vc15"
+                if version.minor >= 4 {
+                    ("vc15", "https://windows.php.net/downloads/releases/")
+                } else if version.minor >= 2 {
+                    ("VC15", "https://windows.php.net/downloads/releases/archives/")
+                } else {
+                    ("VC14", "https://windows.php.net/downloads/releases/archives/")
+                }
             } else {
-                // For PHP 5.x and earlier, try vc15 as fallback
-                "vc15"
+                // PHP 5.6 and earlier
+                ("VC11", "https://windows.php.net/downloads/releases/archives/")
             };
             
             // Use thread_safe_flag to determine TS or NTS build
@@ -98,12 +107,12 @@ impl Installer {
             // TS:  php-{version}-Win32-{vs}-x64.zip
             // NTS: php-{version}-nts-Win32-{vs}-x64.zip (nts comes AFTER version, BEFORE Win32)
             let url = if thread_safe_flag {
-                let u = format!("https://windows.php.net/downloads/releases/php-{}-Win32-{}-x64.zip", version_str, vs_version);
+                let u = format!("{}php-{}-Win32-{}-x64.zip", base_url, version_str, vs_version);
                 crate::logging::log_message("DEBUG", &format!("Building TS URL (thread_safe_flag=true): {}", u));
                 eprintln!("[Installer] Building TS URL: {}", u);
                 u
             } else {
-                let u = format!("https://windows.php.net/downloads/releases/php-{}-nts-Win32-{}-x64.zip", version_str, vs_version);
+                let u = format!("{}php-{}-nts-Win32-{}-x64.zip", base_url, version_str, vs_version);
                 crate::logging::log_message("DEBUG", &format!("Building NTS URL (thread_safe_flag=false): {}", u));
                 eprintln!("[Installer] Building NTS URL: {}", u);
                 u

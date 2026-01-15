@@ -109,9 +109,25 @@ impl PhpManager {
             // They check: C:\Users\...\phpvm\current\php.exe
             let php_exe_in_current = current_dir.join("php.exe");
             
-            // Remove any existing php.exe if it exists
+            // Remove any existing php.exe and DLLs if they exist
             if php_exe_in_current.exists() {
                 let _ = fs::remove_file(&php_exe_in_current);
+            }
+            
+            // Clean up old DLL files from previous version
+            if let Ok(entries) = fs::read_dir(current_dir) {
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        let path = entry.path();
+                        if path.is_file() {
+                            if let Some(ext) = path.extension() {
+                                if ext == "dll" || ext == "DLL" {
+                                    let _ = fs::remove_file(&path);
+                                }
+                            }
+                        }
+                    }
+                }
             }
             
             // Copy php.exe to current directory
@@ -121,6 +137,30 @@ impl PhpManager {
                 .context("Failed to copy php.exe to current directory for IDE compatibility")?;
             
             tracing::info!("Copied php.exe to current directory for IDE compatibility: {:?}", php_exe_in_current);
+            
+            // Copy all DLL files from the version directory to current directory
+            // PHP requires DLLs to be in the same directory or in PATH
+            if let Ok(entries) = fs::read_dir(&version_dir) {
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        let path = entry.path();
+                        if path.is_file() {
+                            if let Some(file_name) = path.file_name() {
+                                if let Some(ext) = path.extension() {
+                                    if ext == "dll" || ext == "DLL" {
+                                        let dll_in_current = current_dir.join(file_name);
+                                        if let Err(e) = fs::copy(&path, &dll_in_current) {
+                                            tracing::warn!("Failed to copy DLL {:?} to current directory: {}", path, e);
+                                        } else {
+                                            tracing::info!("Copied DLL {:?} to current directory", file_name);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             
             // Also create php.bat for command-line compatibility (backward compatibility)
             let php_exe_str = php_exe.to_string_lossy().replace("\\", "\\\\");
@@ -237,7 +277,9 @@ impl PhpManager {
     pub async fn list_available(&self) -> anyhow::Result<Vec<String>> {
         logging::log_message("DEBUG", "Fetching available PHP versions");
         let provider = Provider::new()?;
-        let versions = provider.get_top_versions(10).await?;
+        // Increased limit to 20 to show all major.minor branches (currently ~12 from 5.6 to 8.5)
+        // This ensures all versions from versionlog.com are displayed
+        let versions = provider.get_top_versions(20).await?;
         let version_strings: Vec<String> = versions.iter().map(|v| v.version.clone()).collect();
         logging::log_message("DEBUG", &format!("Found {} available versions", version_strings.len()));
         Ok(version_strings)
@@ -246,7 +288,39 @@ impl PhpManager {
     pub async fn get_version_info(&self, version_str: &str) -> anyhow::Result<Option<crate::provider::VersionInfo>> {
         let provider = Provider::new()?;
         let versions = provider.fetch_available_versions().await?;
-        Ok(versions.into_iter().find(|v| v.version == version_str))
+        
+        // Try to find version in fetched list
+        if let Some(mut info) = versions.into_iter().find(|v| v.version == version_str) {
+            // Ensure EOL date is populated even if parsing failed
+            if info.eol_date.is_none() {
+                if let Ok(version) = PhpVersion::from_string(version_str) {
+                    info.eol_date = Provider::get_eol_date(version.major, version.minor);
+                }
+            }
+            // Ensure download URL is populated
+            if info.download_url.is_none() {
+                if let Ok(version) = PhpVersion::from_string(version_str) {
+                    info.download_url = Some(Provider::generate_download_url(version_str, version.major, version.minor));
+                }
+            }
+            return Ok(Some(info));
+        }
+        
+        // Version not in fetched list - create VersionInfo with EOL date from get_eol_date
+        if let Ok(version) = PhpVersion::from_string(version_str) {
+            let eol_date = Provider::get_eol_date(version.major, version.minor);
+            let download_url = Some(Provider::generate_download_url(version_str, version.major, version.minor));
+            
+            Ok(Some(crate::provider::VersionInfo {
+                version: version_str.to_string(),
+                release_date: None,
+                eol_date,
+                download_url,
+                checksum: None,
+            }))
+        } else {
+            Ok(None)
+        }
     }
     
     pub fn is_path_configured(&self) -> anyhow::Result<bool> {

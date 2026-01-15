@@ -224,3 +224,48 @@ pub fn is_path_set(current_dir: &PathBuf) -> anyhow::Result<bool> {
     let content = fs::read_to_string(&rc_file).unwrap_or_default();
     Ok(content.contains(&current_str))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_get_php_executable_path_windows() {
+        #[cfg(target_os = "windows")]
+        {
+            let version_dir = PathBuf::from("C:\\phpvm\\versions\\php-8.2.0");
+            let exe_path = get_php_executable_path(&version_dir);
+            assert_eq!(exe_path, PathBuf::from("C:\\phpvm\\versions\\php-8.2.0\\php.exe"));
+        }
+    }
+
+    #[test]
+    fn test_get_php_executable_path_unix() {
+        #[cfg(not(target_os = "windows"))]
+        {
+            let version_dir = PathBuf::from("/usr/local/phpvm/versions/php-8.2.0");
+            let exe_path = get_php_executable_path(&version_dir);
+            assert_eq!(exe_path, PathBuf::from("/usr/local/phpvm/versions/php-8.2.0/bin/php"));
+        }
+    }
+
+    #[test]
+    fn test_get_path_env_var() {
+        let env_var = get_path_env_var();
+        #[cfg(target_os = "windows")]
+        assert_eq!(env_var, "Path");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(env_var, "PATH");
+    }
+
+    #[test]
+    fn test_get_current_path() {
+        let current_path = get_current_path();
+        assert!(current_path.to_string_lossy().contains("current"));
+        #[cfg(target_os = "windows")]
+        assert!(current_path.to_string_lossy().contains("php.bat"));
+        #[cfg(not(target_os = "windows"))]
+        assert!(current_path.to_string_lossy().contains("php"));
+    }
+}
