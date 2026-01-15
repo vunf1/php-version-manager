@@ -8,7 +8,8 @@ create_minimal_png() {
     
     # Minimal valid PNG: 1x1 transparent pixel (base64 encoded)
     # This is a valid PNG that Tauri can use
-    if ! python3 << EOF; then
+    # Use quoted heredoc to prevent bash from interpreting special characters
+    if ! python3 << 'PYTHON_SCRIPT'; then
 import struct
 import zlib
 import sys
@@ -35,8 +36,10 @@ def create_png(size, filename):
         png += b'IDAT' + idat_compressed
         png += struct.pack('>I', crc)
         
-        # IEND chunk
-        png += b'\x00\x00\x00\x00IEND\xaeB`\x82'
+        # IEND chunk - construct byte string to avoid backtick interpretation
+        iend_chunk = b'\x00\x00\x00\x00IEND'
+        iend_chunk += bytes([0xae, 0x42, 0x60, 0x82])
+        png += iend_chunk
         
         with open(filename, 'wb') as f:
             f.write(png)
@@ -46,7 +49,7 @@ def create_png(size, filename):
         sys.exit(1)
 
 create_png($size, '$filename')
-EOF
+PYTHON_SCRIPT
         echo "Error: Failed to create $filename using Python" >&2
         exit 1
     fi
