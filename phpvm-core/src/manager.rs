@@ -7,6 +7,8 @@ use crate::state::PhpState;
 use crate::version::PhpVersion;
 use anyhow::Context;
 use std::fs;
+use std::collections::HashMap;
+use std::path::Path;
 
 pub struct PhpManager {
     installer: Installer,
@@ -103,67 +105,32 @@ impl PhpManager {
         {
             let current_dir = current_path.parent()
                 .ok_or_else(|| anyhow::anyhow!("Invalid current path"))?;
-            
-            // Create php.exe in current directory for IDE compatibility
-            // IDEs (like VS Code) expect php.exe directly in the current directory
-            // They check: C:\Users\...\phpvm\current\php.exe
+            // Replace the current directory with a full copy of the version directory.
+            // This ensures the active version is fully available at:
+            // C:\Users\...\AppData\Local\phpvm\current\
+            if current_dir.exists() {
+                fs::remove_dir_all(current_dir)
+                    .context("Failed to remove existing current directory")?;
+            }
+            fs::create_dir_all(current_dir)
+                .context("Failed to create current directory")?;
+
+            copy_dir_recursive(&version_dir, current_dir)
+                .context("Failed to copy PHP version into current directory")?;
+
+            verify_dir_mirror(&version_dir, current_dir)
+                .context("Current directory does not perfectly mirror the version directory")?;
+
+            // Verify the active copy contains php.exe for IDE compatibility.
             let php_exe_in_current = current_dir.join("php.exe");
-            
-            // Remove any existing php.exe and DLLs if they exist
-            if php_exe_in_current.exists() {
-                let _ = fs::remove_file(&php_exe_in_current);
+            if !php_exe_in_current.exists() {
+                anyhow::bail!("php.exe not found in current directory after copy: {:?}", php_exe_in_current);
             }
             
-            // Clean up old DLL files from previous version
-            if let Ok(entries) = fs::read_dir(current_dir) {
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        if path.is_file() {
-                            if let Some(ext) = path.extension() {
-                                if ext == "dll" || ext == "DLL" {
-                                    let _ = fs::remove_file(&path);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Copy php.exe to current directory
-            // This is the most reliable method that works without admin privileges
-            // and ensures IDEs can find and validate the PHP executable
-            fs::copy(&php_exe, &php_exe_in_current)
-                .context("Failed to copy php.exe to current directory for IDE compatibility")?;
-            
-            tracing::info!("Copied php.exe to current directory for IDE compatibility: {:?}", php_exe_in_current);
-            
-            // Copy all DLL files from the version directory to current directory
-            // PHP requires DLLs to be in the same directory or in PATH
-            if let Ok(entries) = fs::read_dir(&version_dir) {
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        if path.is_file() {
-                            if let Some(file_name) = path.file_name() {
-                                if let Some(ext) = path.extension() {
-                                    if ext == "dll" || ext == "DLL" {
-                                        let dll_in_current = current_dir.join(file_name);
-                                        if let Err(e) = fs::copy(&path, &dll_in_current) {
-                                            tracing::warn!("Failed to copy DLL {:?} to current directory: {}", path, e);
-                                        } else {
-                                            tracing::info!("Copied DLL {:?} to current directory", file_name);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            tracing::info!("Copied full PHP version to current directory: {:?}", current_dir);
             
             // Also create php.bat for command-line compatibility (backward compatibility)
-            let php_exe_str = php_exe.to_string_lossy().replace("\\", "\\\\");
+            let php_exe_str = php_exe_in_current.to_string_lossy().replace("\\", "\\\\");
             let batch_content = format!(
                 "@echo off\n\"{}\" %*",
                 php_exe_str
@@ -337,4 +304,95 @@ impl PhpManager {
         platform::add_to_path(&current_dir.to_path_buf())
             .context("Failed to add PHP to PATH")
     }
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    if !src.is_dir() {
+        anyhow::bail!("Source path is not a directory: {:?}", src);
+    }
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(&path, &target)?;
+        } else {
+            fs::copy(&path, &target)
+                .with_context(|| format!("Failed to copy file {:?} to {:?}", path, target))?;
+        }
+    }
+    Ok(())
+}
+
+fn verify_dir_mirror(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    if !src.is_dir() || !dst.is_dir() {
+        anyhow::bail!("Both source and destination must be directories");
+    }
+
+    let src_map = build_file_map(src)?;
+    let dst_map = build_file_map(dst)?;
+
+    if src_map.len() != dst_map.len() {
+        anyhow::bail!(
+            "File count mismatch: source has {}, destination has {}",
+            src_map.len(),
+            dst_map.len()
+        );
+    }
+
+    for (rel_path, src_meta) in src_map {
+        match dst_map.get(&rel_path) {
+            Some(dst_meta) => {
+                if src_meta.is_dir != dst_meta.is_dir {
+                    anyhow::bail!("Type mismatch for {}", rel_path);
+                }
+                if !src_meta.is_dir && src_meta.size != dst_meta.size {
+                    anyhow::bail!(
+                        "Size mismatch for {} (source {}, destination {})",
+                        rel_path,
+                        src_meta.size,
+                        dst_meta.size
+                    );
+                }
+            }
+            None => {
+                anyhow::bail!("Missing in destination: {}", rel_path);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct FileMeta {
+    is_dir: bool,
+    size: u64,
+}
+
+fn build_file_map(root: &Path) -> anyhow::Result<HashMap<String, FileMeta>> {
+    let mut map = HashMap::new();
+    walk_dir(root, root, &mut map)?;
+    Ok(map)
+}
+
+fn walk_dir(root: &Path, current: &Path, map: &mut HashMap<String, FileMeta>) -> anyhow::Result<()> {
+    for entry in fs::read_dir(current)? {
+        let entry = entry?;
+        let path = entry.path();
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let metadata = entry.metadata()?;
+        let is_dir = metadata.is_dir();
+        let size = if is_dir { 0 } else { metadata.len() };
+        map.insert(rel, FileMeta { is_dir, size });
+        if is_dir {
+            walk_dir(root, &path, map)?;
+        }
+    }
+    Ok(())
 }
