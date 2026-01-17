@@ -294,14 +294,64 @@ impl Installer {
             let file_count = archive.len();
             crate::logging::log_message("DEBUG", &format!("Archive contains {} files", file_count));
 
+            // First pass: collect file names and detect common prefix (top-level directory)
+            let mut file_names: Vec<String> = Vec::new();
+            
+            for i in 0..file_count {
+                let file_entry = archive.by_index(i)
+                    .with_context(|| format!("Failed to read file {} from archive", i))?;
+                let file_name = file_entry.name().to_string();
+                file_names.push(file_name);
+            }
+            
+            // Detect common prefix: check if all files share the same top-level directory
+            let mut common_prefix: Option<String> = None;
+            for file_name in &file_names {
+                if let Some(first_slash) = file_name.find('/') {
+                    let prefix = &file_name[..first_slash + 1]; // Include trailing slash
+                    match &common_prefix {
+                        None => common_prefix = Some(prefix.to_string()),
+                        Some(existing) if existing != prefix => {
+                            // Not all files share the same prefix
+                            common_prefix = None;
+                            break;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    // File at root level, no common prefix
+                    common_prefix = None;
+                    break;
+                }
+            }
+            
+            if let Some(ref prefix) = common_prefix {
+                crate::logging::log_message("INFO", &format!("Detected common prefix in ZIP: '{}' - stripping it", prefix));
+                crate::logging::log_message("INFO", "Files will be extracted directly to target directory");
+            } else {
+                crate::logging::log_message("DEBUG", "No common prefix detected, preserving archive structure");
+            }
+
+            // Second pass: extract files, stripping common prefix if present
             for i in 0..file_count {
                 let mut file = archive.by_index(i)
                     .with_context(|| format!("Failed to read file {} from archive", i))?;
                 
-                let file_name = file.name().to_string();
-                let outpath = target_dir.join(file.mangled_name());
+                let original_name = &file_names[i];
+                let mut file_name = original_name.clone();
+                
+                // Strip common prefix if present
+                if let Some(ref prefix) = common_prefix {
+                    if file_name.starts_with(prefix) {
+                        file_name = file_name[prefix.len()..].to_string();
+                    }
+                }
+                
+                // Handle path separators (normalize to forward slashes)
+                let clean_name = file_name.replace('\\', "/");
+                let outpath = target_dir.join(&clean_name);
 
-                if file.name().ends_with('/') {
+                if clean_name.ends_with('/') {
                     fs::create_dir_all(&outpath)
                         .with_context(|| format!("Failed to create directory: {:?}", outpath))?;
                 } else {
@@ -310,13 +360,13 @@ impl Installer {
                             .with_context(|| format!("Failed to create parent directory: {:?}", p))?;
                     }
                     
-                    crate::logging::log_message("DEBUG", &format!("Extracting: {} -> {:?}", file_name, outpath));
+                    crate::logging::log_message("DEBUG", &format!("Extracting: {} -> {:?}", original_name, outpath));
                     
                     let mut outfile = fs::File::create(&outpath)
                         .with_context(|| format!("Failed to create file: {:?}", outpath))?;
                     
                     std::io::copy(&mut file, &mut outfile)
-                        .with_context(|| format!("Failed to extract file: {} to {:?}", file_name, outpath))?;
+                        .with_context(|| format!("Failed to extract file: {} to {:?}", original_name, outpath))?;
                 }
             }
             
