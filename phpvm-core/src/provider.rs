@@ -130,7 +130,7 @@ impl Provider {
             let minor: u8 = cap[2].parse().unwrap_or(0);
             let patch: u8 = cap[3].parse().unwrap_or(0);
             
-            if major > 0 && minor >= 0 && patch > 0 {
+            if major > 0 && patch > 0 {
                 let version_str = format!("{}.{}.{}", major, minor, patch);
                 let key = (major, minor);
                 
@@ -434,7 +434,7 @@ impl Provider {
                 let minor: u8 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
                 
                 // Generate download URL so versions are marked as "online"
-                let download_url = if major > 0 && minor >= 0 {
+                let download_url = if major > 0 {
                     Some(Self::generate_download_url(v, major, minor))
                 } else {
                     None
@@ -548,6 +548,10 @@ mod tests {
         // Test newer versions (>= 7.4) - use releases directory
         let url = Provider::generate_download_url("8.2.0", 8, 2);
         assert!(url.contains("php-8.2.0-Win32-vs16-x64.zip"));
+        
+        // Test PHP 8.3.29 specifically - should use vs16 and releases directory
+        let url = Provider::generate_download_url("8.3.29", 8, 3);
+        assert_eq!(url, "https://windows.php.net/downloads/releases/php-8.3.29-Win32-vs16-x64.zip");
         
         let url = Provider::generate_download_url("8.4.0", 8, 4);
         assert!(url.contains("php-8.4.0-Win32-vs17-x64.zip"));
