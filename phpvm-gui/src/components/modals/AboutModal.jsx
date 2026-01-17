@@ -49,7 +49,7 @@ export const AboutModal = ({ onClose }) => {
               <span className="about-version">v{appVersion}</span>
             </div>
             <p className="about-description">
-              A professional tool for managing multiple PHP versions on Windows.
+              A professional tool for managing multiple PHP versions on Windows and Linux.
             </p>
           </div>
 
@@ -82,9 +82,9 @@ export const AboutModal = ({ onClose }) => {
                 onClick={(e) => handleLinkClick(e, "https://jmsit.cloud/")}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13 17H11V15H13V17ZM13 13H11V7H13V13Z" fill="currentColor"/>
+                  <path d="M4 6H20C21.1 6 22 6.9 22 8V16C22 17.1 21.1 18 20 18H4C2.9 18 2 17.1 2 16V8C2 6.9 2.9 6 4 6ZM4 8V16H20V8H4ZM7 10H13V12H7V10ZM7 13H17V14.5H7V13Z" fill="currentColor"/>
                 </svg>
-                <span>jmsit.cloud</span>
+                <span>JMSIT</span>
               </button>
               <button
                 type="button"
@@ -101,6 +101,23 @@ export const AboutModal = ({ onClose }) => {
           </div>
 
           <div className="about-footer">
+            <div className="about-extra">
+              <p className="about-note">
+                This project is my first attempt using the Rust language.
+              </p>
+              <div className="about-tech">
+                <strong>Technologies</strong>
+                <p>Rust, Tauri, React, Vite, JavaScript, PowerShell.</p>
+              </div>
+              <div className="about-design">
+                <strong>Code Design</strong>
+                <p>Shared core engine, installer/downloader modules, provider-based version fetching, platform-specific adapters for Windows and Linux, JSON config and state.</p>
+              </div>
+              <div className="about-security">
+                <strong>Security</strong>
+                <p>Checksum hashing for downloads and installs, safe cleanup on failed installs, user-scoped PATH updates.</p>
+              </div>
+            </div>
             <p className="about-copyright">
               © {new Date().getFullYear()} JMSIT. Licensed under MIT.
             </p>

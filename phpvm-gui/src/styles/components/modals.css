@@ -416,10 +416,14 @@
   max-width: 420px;
   padding: 0;
   overflow: hidden;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .about-modal-body {
   padding: 1.5rem 1.25rem 1.25rem 1.25rem;
+  overflow: auto;
 }
 
 .about-app-info {
@@ -584,6 +588,40 @@
   border-top: 1px solid #f5f5f5;
 }
 
+.about-extra {
+  margin-bottom: 0.75rem;
+}
+
+.about-note {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.75rem;
+  color: #616161;
+}
+
+.about-tech,
+.about-design,
+.about-security {
+  margin-top: 0.5rem;
+}
+
+.about-tech strong,
+.about-design strong,
+.about-security strong {
+  display: block;
+  font-size: 0.75rem;
+  color: #424242;
+  margin-bottom: 0.25rem;
+}
+
+.about-tech p,
+.about-design p,
+.about-security p {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #757575;
+  line-height: 1.35;
+}
+
 .about-copyright {
   margin: 0 0 0.375rem 0;
   font-size: 0.6875rem;
@@ -604,6 +642,7 @@
   border-top: 1px solid #f5f5f5;
   margin-top: 0;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .about-close-btn {
