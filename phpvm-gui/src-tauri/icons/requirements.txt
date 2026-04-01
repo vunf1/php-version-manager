@@ -1,0 +1,2 @@
+# Icon pipeline: pip install -r requirements.txt (from this folder)
+pillow>=10.0.0

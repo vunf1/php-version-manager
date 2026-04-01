@@ -5,8 +5,9 @@ members = [
 ]
 resolver = "2"
 
+# App version (SSOT). `npm run dev` / `npm run build` in phpvm-gui runs sync-version from this value.
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["PHP Version Manager"]
 license = "MIT"

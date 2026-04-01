@@ -1,16 +1,18 @@
 {
   "name": "phpvm-gui",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "PHP Version Manager GUI",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "sync-version": "node ../scripts/sync-version.mjs",
+    "dev": "npm run sync-version && vite",
+    "build": "npm run sync-version && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build && npm run set-copyright",
-    "set-copyright": "powershell -ExecutionPolicy Bypass -File src-tauri/scripts/set-copyright.ps1"
+    "set-copyright": "powershell -ExecutionPolicy Bypass -File src-tauri/scripts/set-copyright.ps1",
+    "generate-icons": "pip install -q -r src-tauri/icons/requirements.txt && python src-tauri/icons/generate_icons.py"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
