@@ -1,3 +1,11 @@
+//! Application paths under [`get_base_directory`] (typically `%LOCALAPPDATA%\\phpvm` on Windows).
+//!
+//! Layout (defaults; `install_dir` / `download_cache` may be overridden in `config.json`):
+//! - `config.json`, `state.json` — persisted settings and installed-version metadata
+//! - `cache/` — downloaded archives (files named by URL hash; see `download` module)
+//! - `versions/` — extracted PHP trees: `php-{semver}-ts` or `php-{semver}-nts`
+//! - `current/` — active copy/symlink target used for PATH (populated on `switch`; see `platform`)
+//! - `logs/phpvm.log` — log file path
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -56,6 +64,7 @@ impl Config {
     }
 }
 
+/// Root data directory for phpvm (e.g. `%LOCALAPPDATA%\\phpvm`).
 pub fn get_base_directory() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))

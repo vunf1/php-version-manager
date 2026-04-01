@@ -22,7 +22,7 @@ impl Downloader {
 
         Ok(Downloader {
             client: reqwest::Client::builder()
-                .user_agent("phpvm/0.1.0")
+                .user_agent(concat!("phpvm/", env!("CARGO_PKG_VERSION")))
                 .build()?,
             cache_dir,
         })
@@ -34,9 +34,7 @@ impl Downloader {
         expected_checksum: Option<&str>,
         mut progress_callback: Option<Box<dyn FnMut(u64, u64, f64) + Send + Sync>>,
     ) -> anyhow::Result<PathBuf> {
-        let mut hasher = DefaultHasher::new();
-        url.hash(&mut hasher);
-        let url_hash = format!("{:x}", hasher.finish());
+        let url_hash = hash_url(url);
         let cache_path = self.cache_dir.join(&url_hash);
 
         if cache_path.exists() {
@@ -151,5 +149,30 @@ impl Downloader {
         std::io::copy(&mut file, &mut hasher)?;
         let hash = hasher.finalize();
         Ok(hex::encode(hash))
+    }
+}
+
+pub fn hash_url(url: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    url.hash(&mut hasher);
+    format!("{:x}", hasher.finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hash_url;
+
+    #[test]
+    fn test_hash_url_consistent_for_same_input() {
+        let first = hash_url("https://example.com/php.zip");
+        let second = hash_url("https://example.com/php.zip");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn test_hash_url_differs_for_different_input() {
+        let first = hash_url("https://example.com/php-ts.zip");
+        let second = hash_url("https://example.com/php-nts.zip");
+        assert_ne!(first, second);
     }
 }

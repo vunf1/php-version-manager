@@ -10,6 +10,35 @@ use std::fs;
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Resolve `version_str` to an installed version id (`X.Y.Z-ts` / `X.Y.Z-nts`).
+/// Returns an error if both TS and NTS are installed for the same semver but the request is ambiguous (e.g. `8.2.0` only).
+pub(crate) fn resolve_switch_target(
+    installed_versions: &[String],
+    version_str: &str,
+) -> anyhow::Result<String> {
+    if installed_versions.iter().any(|v| v == version_str) {
+        return Ok(version_str.to_string());
+    }
+    let base = version_str.split('-').next().unwrap_or(version_str);
+    let prefix = format!("{}-", base);
+    let candidates: Vec<String> = installed_versions
+        .iter()
+        .filter(|v| v.as_str() == base || v.starts_with(&prefix))
+        .cloned()
+        .collect();
+    match candidates.len() {
+        0 => Err(anyhow::anyhow!("Version {} is not installed", version_str)),
+        1 => Ok(candidates.into_iter().next().expect("one candidate")),
+        _ => Err(anyhow::anyhow!(
+            "Multiple variants installed for {} ({}). Specify {}-ts or {}-nts explicitly.",
+            base,
+            candidates.join(", "),
+            base,
+            base
+        )),
+    }
+}
+
 pub struct PhpManager {
     installer: Installer,
     config: config::Config,
@@ -67,18 +96,7 @@ impl PhpManager {
     pub async fn switch(&self, version_str: &str) -> anyhow::Result<()> {
         // version_str can be "8.5.1-ts" or "8.5.1-nts" or just "8.5.1" (use first available)
         let state = PhpState::load()?;
-        
-        // Find the installed version (with variant suffix)
-        let installed_version = if state.installed_versions.contains(&version_str.to_string()) {
-            version_str.to_string()
-        } else {
-            // Try to find any variant of this version
-            state.installed_versions
-                .iter()
-                .find(|v| v.starts_with(&format!("{}", version_str.split('-').next().unwrap_or(version_str))))
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("Version {} is not installed", version_str))?
-        };
+        let installed_version = resolve_switch_target(&state.installed_versions, version_str)?;
 
         let version_dir = self
             .config
@@ -395,4 +413,47 @@ fn walk_dir(root: &Path, current: &Path, map: &mut HashMap<String, FileMeta>) ->
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod resolve_switch_tests {
+    use super::resolve_switch_target;
+
+    #[test]
+    fn exact_match_wins() {
+        let installed = vec!["8.2.0-nts".to_string(), "8.2.0-ts".to_string()];
+        assert_eq!(
+            resolve_switch_target(&installed, "8.2.0-nts").unwrap(),
+            "8.2.0-nts"
+        );
+    }
+
+    #[test]
+    fn single_variant_by_base_semver() {
+        let installed = vec!["8.2.0-nts".to_string()];
+        assert_eq!(
+            resolve_switch_target(&installed, "8.2.0").unwrap(),
+            "8.2.0-nts"
+        );
+    }
+
+    #[test]
+    fn ambiguous_requires_explicit_variant() {
+        let installed = vec!["8.2.0-nts".to_string(), "8.2.0-ts".to_string()];
+        let err = resolve_switch_target(&installed, "8.2.0").unwrap_err();
+        assert!(
+            err.to_string().contains("Multiple variants installed"),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
+    fn legacy_unsuffixed_directory_name() {
+        let installed = vec!["8.2.0".to_string()];
+        assert_eq!(
+            resolve_switch_target(&installed, "8.2.0").unwrap(),
+            "8.2.0"
+        );
+    }
 }

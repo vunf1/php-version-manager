@@ -35,3 +35,14 @@ fn test_get_current_path_public_api() {
     #[cfg(not(target_os = "windows"))]
     assert!(current_path.to_string_lossy().contains("php"));
 }
+
+#[test]
+fn test_path_shim_parent_is_current_directory() {
+    let current_path = get_current_path();
+    let current_dir = current_path.parent().expect("current path has parent");
+    assert_eq!(
+        current_dir.file_name().and_then(|n| n.to_str()),
+        Some("current"),
+        "PATH should target the directory containing php.exe / shim (not a version folder)"
+    );
+}

@@ -2,11 +2,12 @@
  * Integration tests for Provider
  * Tests the public API of the provider module
  */
+use phpvm_core::PhpVersion;
 use phpvm_core::provider::Provider;
 
 #[test]
 fn test_provider_new_public_api() {
-    let provider = Provider::new().unwrap();
+    let _provider = Provider::new().unwrap();
     // Provider should be created successfully
     assert!(true); // Just verify it doesn't panic
 }
@@ -31,6 +32,46 @@ fn test_generate_download_url_public_api() {
     let url = Provider::generate_download_url("5.6.40", 5, 6);
     assert!(url.contains("php-5.6.40-Win32-VC11-x64.zip"));
     assert!(url.contains("archives"));
+}
+
+#[test]
+fn test_build_official_windows_php_zip_url_ts_and_nts() {
+    let v84 = PhpVersion::new(8, 4, 0);
+    let ts = Provider::build_official_windows_php_zip_url(&v84, true);
+    assert_eq!(
+        ts,
+        "https://windows.php.net/downloads/releases/php-8.4.0-Win32-vs17-x64.zip"
+    );
+    let nts = Provider::build_official_windows_php_zip_url(&v84, false);
+    assert_eq!(
+        nts,
+        "https://windows.php.net/downloads/releases/php-8.4.0-nts-Win32-vs17-x64.zip"
+    );
+    assert!(nts.contains("-nts-Win32-"));
+
+    let v73 = PhpVersion::new(7, 3, 33);
+    let ts73 = Provider::build_official_windows_php_zip_url(&v73, true);
+    assert!(ts73.contains("/archives/"));
+    assert!(ts73.contains("php-7.3.33-Win32-VC15-x64.zip"));
+    let nts73 = Provider::build_official_windows_php_zip_url(&v73, false);
+    assert!(nts73.contains("php-7.3.33-nts-Win32-VC15-x64.zip"));
+
+    let v74 = PhpVersion::new(7, 4, 33);
+    let nts74 = Provider::build_official_windows_php_zip_url(&v74, false);
+    assert!(nts74.contains("/releases/"));
+    assert!(nts74.contains("php-7.4.33-nts-Win32-vc15-x64.zip"));
+}
+
+#[test]
+fn test_official_windows_zip_base_url_matches_install_rules() {
+    assert_eq!(
+        Provider::official_windows_zip_base_url(8, 4),
+        "https://windows.php.net/downloads/releases/"
+    );
+    assert_eq!(
+        Provider::official_windows_zip_base_url(7, 3),
+        "https://windows.php.net/downloads/releases/archives/"
+    );
 }
 
 #[test]

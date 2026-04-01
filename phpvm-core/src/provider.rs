@@ -1,8 +1,42 @@
 use crate::version::PhpVersion;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use regex::Regex;
 use anyhow::Context;
+
+/// Official Windows build manifest (JSON). Preferred over HTML scraping.
+const WINDOWS_RELEASES_MANIFEST_URL: &str =
+    "https://downloads.php.net/~windows/releases/releases.json";
+/// Zip `path` values in the manifest are relative to this directory (php.net layout).
+const WINDOWS_RELEASES_ZIP_BASE: &str = "https://windows.php.net/downloads/releases/";
+/// Official PHP branch lifecycle (EOL, support phases) as JSON.
+const PHP_RELEASE_STATES_URL: &str = "https://www.php.net/releases/states.php?json=1";
+/// Latest patch per `major.minor` (matches php.net source releases), for parity when the Windows manifest lags.
+const PHP_RELEASE_INDEX_URL: &str = "https://www.php.net/releases/index.php";
+
+/// Branches usually absent from `releases.json` (archives-only Windows builds).
+const LEGACY_ARCHIVE_VERSION_LINES: &[&str] = &[
+    "5.6.40", "7.0.33", "7.1.33", "7.2.34", "7.3.33",
+];
+
+/// Last-resort list when all network sources fail (offline / outages).
+const EMERGENCY_FALLBACK_VERSIONS: &[&str] = &["8.3.30", "8.2.30", "7.4.33", "5.6.40"];
+
+#[derive(Debug, Clone, Deserialize)]
+struct PhpBranchState {
+    #[serde(default)]
+    initial_release: Option<String>,
+    #[serde(default)]
+    security_support_end: Option<String>,
+}
+
+/// `index.php?json=1&version=X.Y` — latest full version string for that branch.
+#[derive(Debug, Clone, Deserialize)]
+struct PhpReleaseIndexJson {
+    version: String,
+    #[serde(default)]
+    date: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -21,7 +55,7 @@ impl Provider {
     pub fn new() -> anyhow::Result<Self> {
         Ok(Provider {
             client: reqwest::Client::builder()
-                .user_agent("phpvm/0.1.0")
+                .user_agent(concat!("phpvm/", env!("CARGO_PKG_VERSION")))
                 .timeout(std::time::Duration::from_secs(30))
                 .build()?,
         })
@@ -57,34 +91,50 @@ impl Provider {
         major < 7 || (major == 7 && minor < 4)
     }
 
-    /// Generate download URL for a PHP version
-    /// Older versions (< 7.4) are in archives directory and use VC format (capital)
-    /// Newer versions (>= 7.4) are in releases directory and use vs format (lowercase)
-    pub fn generate_download_url(version_str: &str, major: u8, minor: u8) -> String {
-        let vs_version = Self::get_vs_version(major, minor);
-        
+    /// Base URL (with trailing slash) for official Windows PHP zip builds.
+    /// Archives vs releases matches [`is_archived_version`] (same rule as the installer).
+    pub fn official_windows_zip_base_url(major: u8, minor: u8) -> &'static str {
         if Self::is_archived_version(major, minor) {
-            // Older versions: use archives directory and VC format (capital)
+            "https://windows.php.net/downloads/releases/archives/"
+        } else {
+            "https://windows.php.net/downloads/releases/"
+        }
+    }
+
+    /// Official `windows.php.net` zip URL for thread-safe (TS) or NTS builds.
+    pub fn build_official_windows_php_zip_url(version: &PhpVersion, thread_safe: bool) -> String {
+        let semver = format!("{}.{}.{}", version.major, version.minor, version.patch);
+        let base_url = Self::official_windows_zip_base_url(version.major, version.minor);
+        let vs_version = Self::get_vs_version(version.major, version.minor);
+        if thread_safe {
             format!(
-                "https://windows.php.net/downloads/releases/archives/php-{}-Win32-{}-x64.zip",
-                version_str, vs_version
+                "{}php-{}-Win32-{}-x64.zip",
+                base_url, semver, vs_version
             )
         } else {
-            // Newer versions: use releases directory and vs format (lowercase)
             format!(
-                "https://windows.php.net/downloads/releases/php-{}-Win32-{}-x64.zip",
-                version_str, vs_version
+                "{}php-{}-nts-Win32-{}-x64.zip",
+                base_url, semver, vs_version
             )
         }
     }
 
-    // EOL dates for major.minor versions (security support end dates)
-    // 
-    // IMPORTANT: Keep this synchronized with the hardcoded fallback list below!
-    // Source: https://versionlog.com/php/
-    // Last updated: Dec 18, 2025
-    // 
-    // When updating, ensure EOL dates match the fallback list in fetch_available_versions()
+    /// Generate download URL for a PHP version (thread-safe / TS zip).
+    /// Older versions (&lt; 7.4) use archives; VS/VC token from [`get_vs_version`].
+    pub fn generate_download_url(version_str: &str, major: u8, minor: u8) -> String {
+        let patch_part = version_str.split('.').nth(2).unwrap_or("0");
+        let patch_num = patch_part
+            .split('-')
+            .next()
+            .unwrap_or(patch_part)
+            .parse::<u8>()
+            .unwrap_or(0);
+        let v = PhpVersion::new(major, minor, patch_num);
+        Self::build_official_windows_php_zip_url(&v, true)
+    }
+
+    /// EOL dates for major.minor when [`PHP_RELEASE_STATES_URL`] is unavailable or omits a branch.
+    /// Prefer `states.php?json=1` (`security_support_end`) at runtime.
     pub fn get_eol_date(major: u8, minor: u8) -> Option<String> {
         match (major, minor) {
             (8, 5) => Some("2029-12-31".to_string()), // PHP 8.5 EOL: Dec 31, 2029
@@ -101,6 +151,204 @@ impl Provider {
             (5, 6) => Some("2018-12-31".to_string()), // PHP 5.6 EOL: Dec 31, 2018 (ended)
             _ => None,
         }
+    }
+
+    fn trim_iso_datetime_to_date(s: &str) -> String {
+        s.split('T').next().unwrap_or(s).to_string()
+    }
+
+    fn sort_versions_newest_first(versions: &mut [VersionInfo]) {
+        versions.sort_by(|a, b| {
+            let va = PhpVersion::from_string(&a.version).unwrap_or_default();
+            let vb = PhpVersion::from_string(&b.version).unwrap_or_default();
+            vb.cmp(&va)
+        });
+    }
+
+    /// Merge EOL / initial release from php.net states, then static [`get_eol_date`] fallback.
+    fn enrich_versions_with_release_states(
+        versions: &mut [VersionInfo],
+        states: Option<&HashMap<(u8, u8), PhpBranchState>>,
+    ) {
+        for v in versions.iter_mut() {
+            let Ok(pv) = PhpVersion::from_string(&v.version) else {
+                continue;
+            };
+            if let Some(map) = states {
+                if let Some(st) = map.get(&(pv.major, pv.minor)) {
+                    if let Some(ref e) = st.security_support_end {
+                        v.eol_date = Some(Self::trim_iso_datetime_to_date(e));
+                    }
+                    // Branch first release only; do not replace patch dates from versionlog/HTML.
+                    if v.release_date.is_none() {
+                        if let Some(ref e) = st.initial_release {
+                            v.release_date = Some(Self::trim_iso_datetime_to_date(e));
+                        }
+                    }
+                }
+            }
+            if v.eol_date.is_none() {
+                v.eol_date = Self::get_eol_date(pv.major, pv.minor);
+            }
+        }
+    }
+
+    fn merge_legacy_archive_versions(versions: &mut Vec<VersionInfo>) {
+        let have: HashSet<(u8, u8)> = versions
+            .iter()
+            .filter_map(|vi| {
+                PhpVersion::from_string(&vi.version).ok().map(|p| (p.major, p.minor))
+            })
+            .collect();
+
+        for &ver in LEGACY_ARCHIVE_VERSION_LINES {
+            let Ok(pv) = PhpVersion::from_string(ver) else {
+                continue;
+            };
+            if have.contains(&(pv.major, pv.minor)) {
+                continue;
+            }
+            versions.push(VersionInfo {
+                version: ver.to_string(),
+                release_date: None,
+                eol_date: None,
+                download_url: Some(Self::generate_download_url(ver, pv.major, pv.minor)),
+                checksum: None,
+            });
+        }
+    }
+
+    fn flatten_php_release_states(
+        nested: HashMap<String, HashMap<String, PhpBranchState>>,
+    ) -> HashMap<(u8, u8), PhpBranchState> {
+        let mut flat = HashMap::new();
+        for inner in nested.values() {
+            for (xy, st) in inner {
+                let mut parts = xy.split('.');
+                let (Some(maj_s), Some(min_s)) = (parts.next(), parts.next()) else {
+                    continue;
+                };
+                let Ok(major) = maj_s.parse::<u8>() else {
+                    continue;
+                };
+                let Ok(minor) = min_s.parse::<u8>() else {
+                    continue;
+                };
+                flat.insert((major, minor), st.clone());
+            }
+        }
+        flat
+    }
+
+    async fn fetch_php_release_states_map(
+        &self,
+    ) -> anyhow::Result<HashMap<(u8, u8), PhpBranchState>> {
+        let response = self
+            .client
+            .get(PHP_RELEASE_STATES_URL)
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch {}", PHP_RELEASE_STATES_URL))?;
+
+        let nested: HashMap<String, HashMap<String, PhpBranchState>> =
+            response.json().await.with_context(|| "Invalid states JSON")?;
+
+        Ok(Self::flatten_php_release_states(nested))
+    }
+
+    /// Parse [`WINDOWS_RELEASES_MANIFEST_URL`] document: one TS x64 zip URL per branch.
+    fn version_infos_from_releases_json_root(root: &serde_json::Value) -> anyhow::Result<Vec<VersionInfo>> {
+        let Some(obj) = root.as_object() else {
+            anyhow::bail!("releases.json root must be an object");
+        };
+
+        let mut out = Vec::new();
+
+        for (branch_key, branch_val) in obj {
+            let Some(bobj) = branch_val.as_object() else {
+                continue;
+            };
+            let Some(version_str) = bobj.get("version").and_then(|v| v.as_str()) else {
+                tracing::debug!("Branch {} has no version field, skipping", branch_key);
+                continue;
+            };
+
+            let mut zip_url: Option<String> = None;
+            let mut sha256: Option<String> = None;
+
+            for (k, val) in bobj {
+                if k.starts_with("ts-") && k.ends_with("-x64") {
+                    let Some(z) = val.get("zip") else {
+                        continue;
+                    };
+                    let Some(path) = z.get("path").and_then(|p| p.as_str()) else {
+                        continue;
+                    };
+                    zip_url = Some(format!("{}{}", WINDOWS_RELEASES_ZIP_BASE, path));
+                    sha256 = z
+                        .get("sha256")
+                        .and_then(|s| s.as_str())
+                        .map(|s| s.to_lowercase());
+                    break;
+                }
+            }
+
+            let Some(url) = zip_url else {
+                tracing::warn!(
+                    "No ts-*-x64 zip entry in manifest for branch {}",
+                    branch_key
+                );
+                continue;
+            };
+
+            out.push(VersionInfo {
+                version: version_str.to_string(),
+                release_date: None,
+                eol_date: None,
+                download_url: Some(url),
+                checksum: sha256,
+            });
+        }
+
+        Self::sort_versions_newest_first(&mut out);
+        tracing::info!(
+            "Parsed {} branch(es) from Windows releases.json",
+            out.len()
+        );
+        Ok(out)
+    }
+
+    /// Latest Windows x64 **TS** zip per branch from the official manifest.
+    async fn fetch_versions_from_windows_releases_json(&self) -> anyhow::Result<Vec<VersionInfo>> {
+        let response = self
+            .client
+            .get(WINDOWS_RELEASES_MANIFEST_URL)
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch {}", WINDOWS_RELEASES_MANIFEST_URL))?;
+
+        let root: serde_json::Value = response
+            .json()
+            .await
+            .with_context(|| "Invalid releases manifest JSON")?;
+
+        Self::version_infos_from_releases_json_root(&root)
+    }
+
+    fn emergency_fallback_version_infos() -> Vec<VersionInfo> {
+        EMERGENCY_FALLBACK_VERSIONS
+            .iter()
+            .filter_map(|ver| {
+                let pv = PhpVersion::from_string(ver).ok()?;
+                Some(VersionInfo {
+                    version: (*ver).to_string(),
+                    release_date: None,
+                    eol_date: Self::get_eol_date(pv.major, pv.minor),
+                    download_url: Some(Self::generate_download_url(ver, pv.major, pv.minor)),
+                    checksum: None,
+                })
+            })
+            .collect()
     }
 
     /// Fetch version information from versionlog.com/php/
@@ -291,6 +539,133 @@ impl Provider {
         None
     }
 
+    /// `index.php` dates look like `03 Nov 2022` or `15 Jan 2026` (day, mon, year).
+    fn parse_php_net_index_date(date_str: &str) -> Option<String> {
+        let month_map: HashMap<&str, &str> = [
+            ("jan", "01"),
+            ("feb", "02"),
+            ("mar", "03"),
+            ("apr", "04"),
+            ("may", "05"),
+            ("jun", "06"),
+            ("jul", "07"),
+            ("aug", "08"),
+            ("sep", "09"),
+            ("oct", "10"),
+            ("nov", "11"),
+            ("dec", "12"),
+        ]
+        .iter()
+        .cloned()
+        .collect();
+
+        let parts: Vec<&str> = date_str.split_whitespace().collect();
+        if parts.len() != 3 {
+            return None;
+        }
+        let day: u8 = parts[0].trim_end_matches(',').parse().ok()?;
+        if !(1..=31).contains(&day) {
+            return None;
+        }
+        let mon = parts[1].to_lowercase();
+        let month_num = month_map.get(mon.as_str()).copied()?;
+        let year: u16 = parts[2].parse().ok()?;
+        if !(1995..=2100).contains(&year) {
+            return None;
+        }
+        Some(format!("{}-{}-{:02}", year, month_num, day))
+    }
+
+    async fn fetch_release_index_for_branch(
+        &self,
+        major: u8,
+        minor: u8,
+    ) -> Option<PhpReleaseIndexJson> {
+        let url = format!(
+            "{}?json=1&version={}.{}",
+            PHP_RELEASE_INDEX_URL, major, minor
+        );
+        let response = match self.client.get(&url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::debug!("release index request failed for {}: {}", url, e);
+                return None;
+            }
+        };
+        if !response.status().is_success() {
+            tracing::debug!(
+                "release index HTTP {} for {}",
+                response.status(),
+                url
+            );
+            return None;
+        }
+        match response.json::<PhpReleaseIndexJson>().await {
+            Ok(j) if !j.version.is_empty() => Some(j),
+            Ok(_) => None,
+            Err(e) => {
+                tracing::debug!("release index JSON decode failed for {}: {}", url, e);
+                None
+            }
+        }
+    }
+
+    /// If php.net reports a newer patch than the current row, bump semver, TS zip URL, and clear manifest checksum.
+    async fn cross_check_versions_with_release_index(&self, versions: &mut [VersionInfo]) {
+        for vi in versions.iter_mut() {
+            let Ok(cur) = PhpVersion::from_string(&vi.version) else {
+                continue;
+            };
+            let Some(index) = self
+                .fetch_release_index_for_branch(cur.major, cur.minor)
+                .await
+            else {
+                continue;
+            };
+            let Ok(api_pv) = PhpVersion::from_string(&index.version) else {
+                continue;
+            };
+            if api_pv.major != cur.major || api_pv.minor != cur.minor {
+                tracing::debug!(
+                    "release index branch mismatch: row {}.{} vs API {}",
+                    cur.major,
+                    cur.minor,
+                    index.version
+                );
+                continue;
+            }
+            if api_pv <= cur {
+                continue;
+            }
+            tracing::info!(
+                "Release index: branch {}.{} {} -> {} (php.net latest)",
+                cur.major,
+                cur.minor,
+                vi.version,
+                index.version
+            );
+            vi.version = index.version.clone();
+            vi.checksum = None;
+            vi.download_url = Some(Self::generate_download_url(
+                &index.version,
+                api_pv.major,
+                api_pv.minor,
+            ));
+            if vi.release_date.is_none() {
+                vi.release_date = index
+                    .date
+                    .as_deref()
+                    .and_then(Self::parse_php_net_index_date)
+                    .or_else(|| {
+                        index
+                            .date
+                            .as_deref()
+                            .and_then(Self::parse_date_to_iso)
+                    });
+            }
+        }
+    }
+
     async fn fetch_versions_from_php_net(&self) -> anyhow::Result<Vec<VersionInfo>> {
         // Fetch the Windows PHP downloads page
         let url = "https://windows.php.net/downloads/releases/";
@@ -368,87 +743,92 @@ impl Provider {
     }
 
     pub async fn fetch_available_versions(&self) -> anyhow::Result<Vec<VersionInfo>> {
-        // Try to fetch dynamically from versionlog.com first (most reliable for EOL dates and latest patches)
-        match self.fetch_versions_from_versionlog().await {
-            Ok(versions) if !versions.is_empty() => {
-                tracing::info!("Successfully fetched {} versions from versionlog.com", versions.len());
-                return Ok(versions);
-            }
-            Ok(_) => {
-                tracing::warn!("Fetched empty version list from versionlog.com, trying PHP.net");
-            }
-            Err(e) => {
-                tracing::warn!("Failed to fetch versions from versionlog.com: {}, trying PHP.net", e);
-            }
+        let states = self.fetch_php_release_states_map().await.ok();
+        if states.is_none() {
+            tracing::warn!(
+                "Could not fetch {}; EOL dates will use static fallback where needed",
+                PHP_RELEASE_STATES_URL
+            );
         }
-        
-        // Fallback to PHP.net if versionlog.com fails
-        match self.fetch_versions_from_php_net().await {
-            Ok(versions) if !versions.is_empty() => {
-                tracing::info!("Successfully fetched {} versions from PHP.net", versions.len());
-                return Ok(versions);
-            }
-            Ok(_) => {
-                tracing::warn!("Fetched empty version list from PHP.net, using hardcoded fallback");
-            }
-            Err(e) => {
-                tracing::warn!("Failed to fetch versions from PHP.net: {}, using hardcoded fallback", e);
-            }
-        }
-        
-        // Fallback to hardcoded list if fetching fails
-        // 
-        // IMPORTANT: This list must be kept up-to-date with the latest patch releases!
-        // Source: https://versionlog.com/php/
-        // Last updated: Dec 18, 2025
-        // 
-        // Update this list whenever new patch versions are released:
-        // 1. Check versionlog.com/php/ for latest patch releases
-        // 2. Update the version number, release date, and EOL date for each entry
-        // 3. Also update get_eol_date() function to match EOL dates
-        // 4. Update this "Last updated" date
-        // 
-        // Includes latest patch version for each major.minor branch from 5.6.40 onwards
-        tracing::info!("Using fallback version list");
-        let versions: Vec<(&str, Option<&str>, Option<&str>)> = vec![
-            ("8.5.1", Some("2025-11-20"), Some("2029-12-31")), // PHP 8.5 - Latest patch (Nov 20, 2025), EOL: Dec 31, 2029
-            ("8.4.16", Some("2025-12-18"), Some("2028-12-31")), // PHP 8.4 - Latest patch (Dec 18, 2025), EOL: Dec 31, 2028
-            ("8.3.29", Some("2025-12-18"), Some("2027-12-31")), // PHP 8.3 - Latest patch (Dec 18, 2025), EOL: Dec 31, 2027
-            ("8.2.30", Some("2025-12-18"), Some("2026-12-31")), // PHP 8.2 - Latest patch (Dec 18, 2025), EOL: Dec 31, 2026
-            ("8.1.34", Some("2025-12-18"), Some("2025-12-31")), // PHP 8.1 - Latest patch (Dec 18, 2025), EOL: Dec 31, 2025 (ended)
-            ("8.0.30", Some("2023-08-03"), Some("2023-11-26")), // PHP 8.0 - Latest patch (Aug 3, 2023), EOL: Nov 26, 2023 (ended)
-            ("7.4.33", Some("2022-11-03"), Some("2022-11-28")), // PHP 7.4 - Latest patch (Nov 3, 2022), EOL: Nov 28, 2022 (ended)
-            ("7.3.33", Some("2021-11-18"), Some("2021-12-06")), // PHP 7.3 - Latest patch (Nov 18, 2021), EOL: Dec 6, 2021 (ended)
-            ("7.2.34", Some("2020-10-01"), Some("2020-11-30")), // PHP 7.2 - Latest patch (Oct 1, 2020), EOL: Nov 30, 2020 (ended)
-            ("7.1.33", Some("2019-10-24"), Some("2019-12-01")), // PHP 7.1 - Latest patch (Oct 24, 2019), EOL: Dec 1, 2019 (ended)
-            ("7.0.33", Some("2019-01-10"), Some("2019-01-10")), // PHP 7.0 - Latest patch (Jan 10, 2019), EOL: Jan 10, 2019 (ended)
-            ("5.6.40", Some("2019-01-10"), Some("2018-12-31")), // PHP 5.6 - Latest patch (Jan 10, 2019), EOL: Dec 31, 2018 (ended)
-        ];
 
-        Ok(versions
-            .into_iter()
-            .map(|(v, release, eol)| {
-                // Parse version to determine VS version for download URL
-                let parts: Vec<&str> = v.split('.').collect();
-                let major: u8 = parts.get(0).and_then(|s| s.parse().ok()).unwrap_or(0);
-                let minor: u8 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-                
-                // Generate download URL so versions are marked as "online"
-                let download_url = if major > 0 {
-                    Some(Self::generate_download_url(v, major, minor))
-                } else {
-                    None
-                };
-                
-                VersionInfo {
-                    version: v.to_string(),
-                    release_date: release.map(|s| s.to_string()),
-                    eol_date: eol.map(|s| s.to_string()),
-                    download_url,
-                    checksum: None,
-                }
-            })
-            .collect())
+        match self.fetch_versions_from_windows_releases_json().await {
+            Ok(mut versions) if !versions.is_empty() => {
+                Self::enrich_versions_with_release_states(&mut versions, states.as_ref());
+                Self::merge_legacy_archive_versions(&mut versions);
+                self.cross_check_versions_with_release_index(&mut versions)
+                    .await;
+                Self::enrich_versions_with_release_states(&mut versions, states.as_ref());
+                Self::sort_versions_newest_first(&mut versions);
+                tracing::info!(
+                    "Using {} version(s) from Windows releases.json (after legacy merge)",
+                    versions.len()
+                );
+                return Ok(versions);
+            }
+            Ok(_) => {
+                tracing::warn!("Empty Windows releases.json, trying versionlog.com");
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Windows releases.json failed: {}, trying versionlog.com",
+                    e
+                );
+            }
+        }
+
+        match self.fetch_versions_from_versionlog().await {
+            Ok(mut versions) if !versions.is_empty() => {
+                Self::enrich_versions_with_release_states(&mut versions, states.as_ref());
+                Self::merge_legacy_archive_versions(&mut versions);
+                self.cross_check_versions_with_release_index(&mut versions)
+                    .await;
+                Self::enrich_versions_with_release_states(&mut versions, states.as_ref());
+                Self::sort_versions_newest_first(&mut versions);
+                tracing::info!(
+                    "Successfully fetched {} versions from versionlog.com (with enrich/legacy)",
+                    versions.len()
+                );
+                return Ok(versions);
+            }
+            Ok(_) => {
+                tracing::warn!("Fetched empty version list from versionlog.com, trying PHP.net HTML");
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to fetch versions from versionlog.com: {}, trying PHP.net HTML",
+                    e
+                );
+            }
+        }
+
+        match self.fetch_versions_from_php_net().await {
+            Ok(mut versions) if !versions.is_empty() => {
+                Self::enrich_versions_with_release_states(&mut versions, states.as_ref());
+                Self::merge_legacy_archive_versions(&mut versions);
+                self.cross_check_versions_with_release_index(&mut versions)
+                    .await;
+                Self::enrich_versions_with_release_states(&mut versions, states.as_ref());
+                Self::sort_versions_newest_first(&mut versions);
+                tracing::info!(
+                    "Successfully fetched {} versions from PHP.net HTML (with enrich/legacy)",
+                    versions.len()
+                );
+                return Ok(versions);
+            }
+            Ok(_) => {
+                tracing::warn!("Fetched empty version list from PHP.net HTML");
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch versions from PHP.net HTML: {}", e);
+            }
+        }
+
+        tracing::info!("Using minimal emergency fallback version list (offline / total failure)");
+        let mut versions = Self::emergency_fallback_version_infos();
+        self.cross_check_versions_with_release_index(&mut versions).await;
+        Self::enrich_versions_with_release_states(&mut versions, states.as_ref());
+        Self::sort_versions_newest_first(&mut versions);
+        Ok(versions)
     }
 
     pub async fn get_top_versions(&self, limit: usize) -> anyhow::Result<Vec<VersionInfo>> {
@@ -599,5 +979,56 @@ mod tests {
         let _provider = Provider::new().unwrap();
         // Provider should be created successfully
         assert!(true); // Just verify it doesn't panic
+    }
+
+    #[test]
+    fn test_version_infos_from_releases_json_root_ts_x64_zip_url() {
+        let root = serde_json::json!({
+            "7.4": {
+                "version": "7.4.33",
+                "ts-vc15-x64": {
+                    "zip": {
+                        "path": "php-7.4.33-Win32-vc15-x64.zip",
+                        "sha256": "AAbbCC"
+                    }
+                }
+            }
+        });
+        let list = Provider::version_infos_from_releases_json_root(&root).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].version, "7.4.33");
+        assert_eq!(
+            list[0].download_url.as_deref(),
+            Some("https://windows.php.net/downloads/releases/php-7.4.33-Win32-vc15-x64.zip")
+        );
+        assert_eq!(list[0].checksum.as_deref(), Some("aabbcc"));
+    }
+
+    #[test]
+    fn test_parse_php_net_index_date_day_mon_year() {
+        assert_eq!(
+            Provider::parse_php_net_index_date("03 Nov 2022"),
+            Some("2022-11-03".to_string())
+        );
+        assert_eq!(
+            Provider::parse_php_net_index_date("10 Jan 2019"),
+            Some("2019-01-10".to_string())
+        );
+        assert_eq!(
+            Provider::parse_php_net_index_date("15 Jan 2026"),
+            Some("2026-01-15".to_string())
+        );
+    }
+
+    #[test]
+    fn test_flatten_php_release_states_major_minor_keys() {
+        let nested: HashMap<String, HashMap<String, PhpBranchState>> =
+            serde_json::from_str(r#"{"8":{"8.3":{"initial_release":"2023-11-23T00:00:00+00:00","security_support_end":"2027-12-31T00:00:00+00:00"}}}"#).unwrap();
+        let flat = Provider::flatten_php_release_states(nested);
+        let st = flat.get(&(8, 3)).expect("8.3 branch");
+        assert_eq!(
+            st.security_support_end.as_deref(),
+            Some("2027-12-31T00:00:00+00:00")
+        );
     }
 }
