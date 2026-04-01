@@ -9,14 +9,24 @@ Write-Host ""
 # Check prerequisites
 Write-Host "Checking prerequisites..." -ForegroundColor Yellow
 
-# Check for Cargo (Rust)
+# Check for Cargo (Rust) — use cmd for version so rustup stderr does not trip ErrorAction Stop
 $cargoCheck = Get-Command cargo -ErrorAction SilentlyContinue
 if (-not $cargoCheck) {
     Write-Host "ERROR: Cargo (Rust) is not installed or not in PATH!" -ForegroundColor Red
     exit 1
 }
-$cargoVersion = (cargo --version 2>&1 | Out-String).Trim()
-Write-Host "  [OK] Cargo (Rust) found: $cargoVersion" -ForegroundColor Green
+. (Join-Path $PSScriptRoot "scripts\rustup-bootstrap.ps1")
+$cargoProbe = Ensure-CargoUsable
+if ($cargoProbe.Code -ne 0 -or -not $cargoProbe.Line) {
+    Write-Host "ERROR: cargo is on PATH but does not run." -ForegroundColor Red
+    if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+        Write-Host "Install Rust from https://www.rust-lang.org/tools/install (includes rustup), then reopen this terminal." -ForegroundColor Yellow
+    } else {
+        Write-Host "Try manually: rustup toolchain install stable   then   rustup default stable" -ForegroundColor Yellow
+    }
+    exit 1
+}
+Write-Host "  [OK] Cargo (Rust) found: $($cargoProbe.Line)" -ForegroundColor Green
 
 # Check for Node.js
 $nodeCheck = Get-Command node -ErrorAction SilentlyContinue
@@ -24,8 +34,14 @@ if (-not $nodeCheck) {
     Write-Host "ERROR: Node.js is not installed or not in PATH!" -ForegroundColor Red
     exit 1
 }
-$nodeVersion = (node --version 2>&1 | Out-String).Trim()
-Write-Host "  [OK] Node.js found: $nodeVersion" -ForegroundColor Green
+$nodeOut = cmd /c "node --version 2>nul" 2>&1
+$nodeCode = $LASTEXITCODE
+$nodeLine = if ($null -eq $nodeOut) { "" } else { "$nodeOut".Trim() }
+if ($nodeCode -ne 0 -or -not $nodeLine) {
+    Write-Host "ERROR: node is on PATH but does not run." -ForegroundColor Red
+    exit 1
+}
+Write-Host "  [OK] Node.js found: $nodeLine" -ForegroundColor Green
 
 # Check for npm
 $npmCheck = Get-Command npm -ErrorAction SilentlyContinue
@@ -33,8 +49,14 @@ if (-not $npmCheck) {
     Write-Host "ERROR: npm is not installed or not in PATH!" -ForegroundColor Red
     exit 1
 }
-$npmVersion = (npm --version 2>&1 | Out-String).Trim()
-Write-Host "  [OK] npm found: $npmVersion" -ForegroundColor Green
+$npmOut = cmd /c "npm --version 2>nul" 2>&1
+$npmCode = $LASTEXITCODE
+$npmLine = if ($null -eq $npmOut) { "" } else { "$npmOut".Trim() }
+if ($npmCode -ne 0 -or -not $npmLine) {
+    Write-Host "ERROR: npm is on PATH but does not run." -ForegroundColor Red
+    exit 1
+}
+Write-Host "  [OK] npm found: $npmLine" -ForegroundColor Green
 Write-Host ""
 
 # Set environment variables for optimal hot reload development

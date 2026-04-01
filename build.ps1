@@ -20,8 +20,20 @@ if (-not $cargoCheck) {
     exit 1
 }
 
-$cargoVersion = (cargo --version 2>&1 | Out-String).Trim()
-Write-Host "  [OK] Cargo (Rust) found: $cargoVersion" -ForegroundColor Green
+. (Join-Path $PSScriptRoot "scripts\rustup-bootstrap.ps1")
+$cargoProbe = Ensure-CargoUsable
+if ($cargoProbe.Code -ne 0 -or -not $cargoProbe.Line) {
+    Write-Host "ERROR: cargo is on PATH but does not run." -ForegroundColor Red
+    Write-Host ""
+    if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+        Write-Host "Install Rust from https://www.rust-lang.org/tools/install (includes rustup), then reopen this terminal." -ForegroundColor Yellow
+    } else {
+        Write-Host "Try manually: rustup toolchain install stable   then   rustup default stable" -ForegroundColor Yellow
+    }
+    Write-Host ""
+    exit 1
+}
+Write-Host "  [OK] Cargo (Rust) found: $($cargoProbe.Line)" -ForegroundColor Green
 
 # Check for Node.js
 $nodeCheck = Get-Command node -ErrorAction SilentlyContinue
@@ -35,7 +47,14 @@ if (-not $nodeCheck) {
     exit 1
 }
 
-Write-Host "  [OK] Node.js found: $($nodeCheck.Version)" -ForegroundColor Green
+$nodeOut = cmd /c "node --version 2>nul" 2>&1
+$nodeCode = $LASTEXITCODE
+$nodeLine = if ($null -eq $nodeOut) { "" } else { "$nodeOut".Trim() }
+if ($nodeCode -ne 0 -or -not $nodeLine) {
+    Write-Host "ERROR: node is on PATH but does not run." -ForegroundColor Red
+    exit 1
+}
+Write-Host "  [OK] Node.js found: $nodeLine" -ForegroundColor Green
 
 # Check for npm
 $npmCheck = Get-Command npm -ErrorAction SilentlyContinue
@@ -46,8 +65,14 @@ if (-not $npmCheck) {
     exit 1
 }
 
-$npmVersion = (npm --version 2>&1 | Out-String).Trim()
-Write-Host "  [OK] npm found: $npmVersion" -ForegroundColor Green
+$npmOut = cmd /c "npm --version 2>nul" 2>&1
+$npmCode = $LASTEXITCODE
+$npmLine = if ($null -eq $npmOut) { "" } else { "$npmOut".Trim() }
+if ($npmCode -ne 0 -or -not $npmLine) {
+    Write-Host "ERROR: npm is on PATH but does not run." -ForegroundColor Red
+    exit 1
+}
+Write-Host "  [OK] npm found: $npmLine" -ForegroundColor Green
 Write-Host ""
 
 # Set environment variables for faster builds
@@ -181,7 +206,22 @@ Write-Host ""
 Write-Host "Output files:" -ForegroundColor Cyan
 Write-Host "  GUI: phpvm-gui\src-tauri\target\release\phpvm-gui.exe" -ForegroundColor White
 Write-Host ""
+# Installer filenames use the workspace version from Cargo.toml (same SSOT as sync-version.mjs)
+$releaseVersion = "unknown"
+try {
+    $metaJson = cargo metadata --format-version 1 --no-deps --quiet 2>&1 | Out-String
+    if ($metaJson) {
+        $meta = $metaJson | ConvertFrom-Json
+        $corePkg = $meta.packages | Where-Object { $_.name -eq "phpvm-core" } | Select-Object -First 1
+        if ($corePkg -and $corePkg.version) {
+            $releaseVersion = [string]$corePkg.version
+        }
+    }
+} catch {
+    Write-Host "  [WARN] Could not read version from cargo metadata for installer path hint" -ForegroundColor Yellow
+}
+
 Write-Host "Installers:" -ForegroundColor Cyan
-Write-Host "  MSI: phpvm-gui\src-tauri\target\release\bundle\msi\PHP Version Manager_0.1.0_x64_en-US.msi" -ForegroundColor White
-Write-Host "  NSIS: phpvm-gui\src-tauri\target\release\bundle\nsis\PHP Version Manager_0.1.0_x64-setup.exe" -ForegroundColor White
+Write-Host "  MSI: phpvm-gui\src-tauri\target\release\bundle\msi\PHP Version Manager_${releaseVersion}_x64_en-US.msi" -ForegroundColor White
+Write-Host "  NSIS: phpvm-gui\src-tauri\target\release\bundle\nsis\PHP Version Manager_${releaseVersion}_x64-setup.exe" -ForegroundColor White
 Write-Host ""
