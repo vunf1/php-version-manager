@@ -69,7 +69,7 @@ export const useVersionOperations = ({
     } else {
       // Both installed
       if (showWarning) {
-        showWarning(`PHP ${version} (both TS and NTS) is already installed.`);
+        showWarning(`PHP ${version} (both TS and NTS) is already on this PC.`);
       }
     }
   };
@@ -160,7 +160,6 @@ export const useVersionOperations = ({
     try {
       setIsInstalling(true);
       setInstallingVersion(version);
-      setInstallProgress("Preparing installation...");
       // Initialize download progress (but don't reset if we already have data)
       setDownloadProgress(prev => prev.total === 0 ? { downloaded: 0, total: 0, speed: 0, percent: 0, isCached: false } : prev);
       
@@ -177,7 +176,7 @@ export const useVersionOperations = ({
       
       // Set initial message - will be updated when we receive progress event
       setInstallProgress("Preparing download...");
-      console.log("[useVersionOperations] Starting installation, waiting for download progress events...");
+      console.log("[useVersionOperations] Starting download/add flow, waiting for progress events...");
       // Reset download progress when starting a NEW download
       setDownloadProgress({ downloaded: 0, total: 0, speed: 0, percent: 0, isCached: false });
       
@@ -188,30 +187,29 @@ export const useVersionOperations = ({
       
       await phpvmApi.installVersion(params);
       
-      setInstallProgress("Installing...");
+      setInstallProgress("Extracting files...");
       // Don't reset downloadProgress here - keep the final download stats visible
-      // Only reset if we're starting a new download
-      // Quick refresh without showing loading state
       await refreshInstalledData();
       
       if (wasFirstInstall) {
         setInstallProgress("Activating version...");
-        await phpvmApi.switchVersion(version);
+        const variantSuffix = threadSafe === false ? "nts" : "ts";
+        await phpvmApi.switchVersion(`${version}-${variantSuffix}`);
         // Quick refresh without showing loading state
         await refreshInstalledData();
       }
       
-      setInstallProgress("Installation complete!");
+      setInstallProgress("Complete.");
       if (showSuccess) {
-        showSuccess(`PHP ${version} installed successfully`);
+        showSuccess(`PHP ${version} is ready in your versions folder.`);
       }
       await new Promise(resolve => setTimeout(resolve, 500));
     } catch (err) {
       const errorMsg = err.toString();
       if (showError) {
-        showError(`Failed to install PHP ${version}: ${errorMsg}`);
+        showError(`Could not download or set up PHP ${version}: ${errorMsg}`);
       }
-      setInstallProgress("Installation failed");
+      setInstallProgress("Could not complete setup");
       throw err;
     } finally {
       setIsInstalling(false);

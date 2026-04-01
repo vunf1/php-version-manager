@@ -5,6 +5,8 @@ use phpvm_core::platform;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, State};
 use tokio::sync::mpsc;
+use std::collections::HashMap;
+use std::fs;
 
 #[derive(Serialize, Deserialize)]
 pub struct VersionStatus {
@@ -306,6 +308,14 @@ pub struct CachedFile {
     pub size: u64,
     pub modified: String,
     pub version: Option<String>, // e.g., "8.5.1-ts" or "8.5.1-nts"
+    pub display_name: Option<String>, // e.g., "PHP 8.5.1 (NTS)"
+}
+
+#[derive(Serialize, Deserialize)]
+struct CacheMetadataEntry {
+    version: Option<String>,
+    source_url: Option<String>,
+    stored_at: Option<String>,
 }
 
 // Helper function to hash a URL (same as in download.rs)
@@ -315,6 +325,59 @@ fn hash_url(url: &str) -> String {
     let mut hasher = DefaultHasher::new();
     url.hash(&mut hasher);
     format!("{:x}", hasher.finish())
+}
+
+fn load_cache_metadata() -> HashMap<String, CacheMetadataEntry> {
+    let metadata_path = config::get_base_directory()
+        .join("cache")
+        .join("cache_metadata.json");
+    if !metadata_path.exists() {
+        return HashMap::new();
+    }
+
+    match fs::read_to_string(&metadata_path) {
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(map) => map,
+            Err(e) => {
+                eprintln!("Failed to parse cache metadata: {}", e);
+                HashMap::new()
+            }
+        },
+        Err(_) => HashMap::new(),
+    }
+}
+
+fn format_cache_display_name(version: &str) -> String {
+    if let Some(stripped) = version.strip_suffix("-nts") {
+        format!("PHP {} (NTS)", stripped)
+    } else if let Some(stripped) = version.strip_suffix("-ts") {
+        format!("PHP {} (TS)", stripped)
+    } else {
+        format!("PHP {}", version)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_cache_display_name;
+
+    #[test]
+    fn test_format_cache_display_name_nts() {
+        let name = format_cache_display_name("8.2.1-nts");
+        assert_eq!(name, "PHP 8.2.1 (NTS)");
+    }
+
+    #[test]
+    fn test_format_cache_display_name_ts() {
+        let name = format_cache_display_name("8.2.1-ts");
+        assert_eq!(name, "PHP 8.2.1 (TS)");
+    }
+
+    #[test]
+    fn test_format_cache_display_name_plain() {
+        let name = format_cache_display_name("8.2.1");
+        assert_eq!(name, "PHP 8.2.1");
+    }
 }
 
 // Helper function to determine VS/VC version based on PHP version
@@ -359,10 +422,21 @@ pub async fn list_cached_files(state: State<'_, AppState>) -> Result<Vec<CachedF
         return Ok(vec![]);
     }
     
-    // Get all available versions to match against
-    let manager = state.manager.lock().await;
-    let available_versions = manager.list_available().await.map_err(|e| e.to_string())?;
-    drop(manager);
+    let cache_metadata = load_cache_metadata();
+
+    // Get all available versions to match against (best-effort fallback)
+    let available_versions = {
+        let manager = state.manager.lock().await;
+        let result = manager.list_available().await;
+        drop(manager);
+        match result {
+            Ok(versions) => versions,
+            Err(e) => {
+                eprintln!("Failed to fetch available versions for cache mapping: {}", e);
+                Vec::new()
+            }
+        }
+    };
     
     // Build a hash map of hash -> version once (O(m * p) instead of O(n * m * p))
     // This dramatically improves performance when there are many cached files
@@ -472,14 +546,21 @@ pub async fn list_cached_files(state: State<'_, AppState>) -> Result<Vec<CachedF
                                 Err(_) => "0".to_string(),
                             };
                             
-                            // O(1) lookup instead of O(m * p) iteration
-                            let matched_version = hash_to_version.get(hash).cloned();
+                            // Prefer stored cache metadata, fall back to hash lookup
+                            let matched_version = cache_metadata
+                                .get(hash)
+                                .and_then(|entry| entry.version.clone())
+                                .or_else(|| hash_to_version.get(hash).cloned());
+                            let display_name = matched_version
+                                .as_deref()
+                                .map(format_cache_display_name);
                             
                             cached_files.push(CachedFile {
                                 hash: hash.to_string(),
                                 size,
                                 modified,
                                 version: matched_version,
+                                display_name,
                             });
                         }
                     }

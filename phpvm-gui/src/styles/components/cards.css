@@ -61,8 +61,8 @@
   color: #f57c00;
 }
 
-.version-card.installed {
-  /* Style for installed versions in Available tab */
+.version-card.has-local-version {
+  /* Available tab: version already present under versions folder */
   opacity: 0.9;
 }
 

@@ -17,30 +17,35 @@ export const usePhpVersions = () => {
   const [loadingStatuses, setLoadingStatuses] = useState(false);
   const isLoadingRef = useRef(false);
 
-  // Lightweight refresh that only updates installed/active versions (no loading state)
+  // Lightweight refresh after install/switch/remove (no full-page loading state)
   const refreshInstalledData = useCallback(async () => {
     try {
-      // Only fetch what changed after switch/remove operations
       const installed = await phpvmApi.listInstalled().catch(err => {
         console.error("[refreshInstalledData] Error in listInstalled:", err);
-        return null; // Return null to indicate error, don't update state
+        return null;
       });
-      
+
       const active = await phpvmApi.getActive().catch(err => {
         console.error("[refreshInstalledData] Error in getActive:", err);
         return null;
       });
-      
-      // Only update if we got valid data
+
+      const pathStatus = await phpvmApi.checkPathStatus().catch(err => {
+        console.error("[refreshInstalledData] Error in checkPathStatus:", err);
+        return null;
+      });
+
       if (installed !== null) {
         setInstalledVersions(installed || []);
       }
       if (active !== null) {
         setActiveVersion(active || null);
       }
+      if (pathStatus !== null) {
+        setPathStatus(pathStatus || { is_set: false, current_path: "" });
+      }
     } catch (err) {
       console.error("[refreshInstalledData] Error refreshing data:", err);
-      // Don't set error state for background refreshes
     }
   }, []);
 
@@ -81,23 +86,25 @@ export const usePhpVersions = () => {
         console.error("[loadData] Error in checkPathStatus:", err);
         return { is_set: false, current_path: "" };
       });
-      
-      // Load manager-dependent calls sequentially to avoid lock contention
-      // These all need to lock the same Mutex, so sequential is safer
+
+      // Slow network call first — user may install/switch while this runs; if we fetched
+      // list_installed before this, a later setState would overwrite fresh data from
+      // refreshInstalledData with stale empty/partial lists.
+      const available = await phpvmApi.listAvailable().catch(err => {
+        console.error("[loadData] Error in listAvailable:", err);
+        return [];
+      });
+
+      // Re-fetch installed/active AFTER list_available so results match disk/state even if
+      // an install completed during the network request (no full reload needed).
       const installed = await phpvmApi.listInstalled().catch(err => {
         console.error("[loadData] Error in listInstalled:", err);
         return [];
       });
-      
+
       const active = await phpvmApi.getActive().catch(err => {
         console.error("[loadData] Error in getActive:", err);
         return null;
-      });
-      
-      // list_available can be slow (network request), so do it last
-      const available = await phpvmApi.listAvailable().catch(err => {
-        console.error("[loadData] Error in listAvailable:", err);
-        return [];
       });
 
       console.log("[loadData] Data loaded successfully:", { installed, available, active });

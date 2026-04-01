@@ -145,9 +145,11 @@ export const CacheTab = ({ showSuccess, showError }) => {
                     <path d="M2 17L12 22L22 17" stroke="#4caf50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                     <path d="M2 12L12 17L22 12" stroke="#4caf50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
-                  {file.version ? (
+                  {file.display_name || file.version ? (
                     <>
-                      <strong style={{ fontSize: '0.9375rem' }}>PHP {file.version}</strong>
+                      <strong style={{ fontSize: '0.9375rem' }}>
+                        {file.display_name ? file.display_name : `PHP ${file.version}`}
+                      </strong>
                       <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#757575' }}>
                         ({file.hash.substring(0, 8)}...)
                       </span>

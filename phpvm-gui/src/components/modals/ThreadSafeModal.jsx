@@ -14,8 +14,8 @@ export const ThreadSafeModal = ({
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <h2>Select Thread Safety</h2>
-        <p>Choose the thread safety option for PHP {version}:</p>
+        <h2>Select build type</h2>
+        <p>Choose thread-safe (TS) or non-thread-safe (NTS) for PHP {version}. The package will be downloaded and extracted into your versions folder.</p>
         <div className="thread-safe-options">
           <label className={`thread-safe-option ${tsInstalled ? 'disabled' : ''}`}>
             <input
@@ -27,7 +27,7 @@ export const ThreadSafeModal = ({
             />
             <div>
               <strong>Thread Safe (TS)</strong>
-              {tsInstalled && <span className="option-badge installed-badge">Already Installed</span>}
+              {tsInstalled && <span className="option-badge installed-badge">Already on this PC</span>}
               <span className="option-description">Recommended for Apache and IIS with thread-safe modules</span>
             </div>
           </label>
@@ -41,7 +41,7 @@ export const ThreadSafeModal = ({
             />
             <div>
               <strong>Non-Thread Safe (NTS)</strong>
-              {ntsInstalled && <span className="option-badge installed-badge">Already Installed</span>}
+              {ntsInstalled && <span className="option-badge installed-badge">Already on this PC</span>}
               <span className="option-description">Recommended for Nginx and FastCGI</span>
             </div>
           </label>
@@ -59,7 +59,7 @@ export const ThreadSafeModal = ({
             onClick={onConfirm}
             disabled={isInstalling || (tsInstalled && selectedThreadSafe) || (ntsInstalled && !selectedThreadSafe)}
           >
-            Install
+            Download
           </button>
         </div>
       </div>

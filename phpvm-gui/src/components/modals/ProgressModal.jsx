@@ -79,20 +79,53 @@ export const ProgressModal = ({ type, version, progress, title, downloadProgress
     return `${mbps.toFixed(2)} MB/s`;
   };
 
-  // Show download progress only while actively downloading
-  // Hide it when download is complete (progress text is "Installing..." or later)
-  const isDownloading = progress === "Downloading PHP archive..." || progress === "Using cached PHP archive...";
+  // Show download progress only while actively downloading or using cache
+  const isDownloading =
+    progress === "Downloading PHP archive..." ||
+    progress === "Using cached PHP archive..." ||
+    progress === "Preparing download...";
   const showDownloadProgress = type === 'install' && 
     downloadProgress && 
     downloadProgress.total > 0 &&
     isDownloading;
+
+  const installHeading = () => {
+    if (!progress) return `Setting up PHP ${displayVersion}`;
+    if (
+      progress === "Preparing download..." ||
+      progress === "Downloading PHP archive..." ||
+      progress === "Using cached PHP archive..."
+    ) {
+      return `Downloading PHP ${displayVersion}`;
+    }
+    if (progress === "Extracting files...") {
+      return `Extracting PHP ${displayVersion}`;
+    }
+    if (progress === "Activating version...") {
+      return `Activating PHP ${displayVersion}`;
+    }
+    if (progress === "Complete.") {
+      return `PHP ${displayVersion} ready`;
+    }
+    if (progress === "Could not complete setup") {
+      return `Setup failed for PHP ${displayVersion}`;
+    }
+    return `Setting up PHP ${displayVersion}`;
+  };
+
+  const defaultHeading =
+    type === "install"
+      ? installHeading()
+      : type === "switch"
+        ? `Switching to PHP ${displayVersion}`
+        : `Removing PHP ${displayVersion}`;
 
   return (
     <div className="modal-overlay install-modal-overlay">
       <div className="modal-content install-modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="install-modal-header">
           {getIcon()}
-          <h2>{title || `${type === 'install' ? 'Installing' : type === 'switch' ? 'Switching to' : 'Removing'} PHP ${displayVersion}`}</h2>
+          <h2>{title || defaultHeading}</h2>
         </div>
         <p className={`install-progress ${downloadProgress?.isCached ? 'install-progress-cached' : ''}`}>{progress}</p>
         {showDownloadProgress ? (

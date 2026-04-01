@@ -170,10 +170,15 @@ export const AvailableVersionsTab = ({
           className="btn btn-primary"
           onClick={() => onInstallClick(installVersion)}
           disabled={isInstalling || !installVersion || showThreadSafeModal}
+          title="Downloads the build, then extracts it into your versions folder (see Installed tab)"
         >
-          Install
+          Download
         </button>
       </div>
+      <p className="tab-hint available-tab-hint">
+        This tab downloads official PHP packages into your versions folder. Manage and activate versions on the{" "}
+        <strong>Installed</strong> tab.
+      </p>
       {loading && (
         <div className="loading">Loading available versions...</div>
       )}
@@ -195,13 +200,13 @@ export const AvailableVersionsTab = ({
         <div className="version-grid">
           {filteredVersions.map((version) => {
             const status = versionStatuses[version] || {};
-            const tsInstalled = installedVersions.some(v => v.startsWith(`${version}-ts`) || v === `${version}-ts`);
-            const ntsInstalled = installedVersions.some(v => v.startsWith(`${version}-nts`) || v === `${version}-nts`);
-            const bothInstalled = tsInstalled && ntsInstalled;
-            const isInstalled = tsInstalled || ntsInstalled;
+            const hasTs = installedVersions.some(v => v.startsWith(`${version}-ts`) || v === `${version}-ts`);
+            const hasNts = installedVersions.some(v => v.startsWith(`${version}-nts`) || v === `${version}-nts`);
+            const hasBothVariants = hasTs && hasNts;
+            const hasAnyLocal = hasTs || hasNts;
 
             return (
-              <div key={version} className={`version-card ${isInstalled ? "installed" : ""}`}>
+              <div key={version} className={`version-card ${hasAnyLocal ? "has-local-version" : ""}`}>
                 <div className="version-main-content">
                   <div className="version-header">
                     <div className="version-title">
@@ -215,30 +220,38 @@ export const AvailableVersionsTab = ({
                         )}
                       </div>
                       <div className="version-actions">
-                        {bothInstalled ? (
-                          <span className="text-muted">Both installed</span>
+                        {hasBothVariants ? (
+                          <span className="text-muted">TS and NTS on this PC</span>
                         ) : (
                           <button
-                            className={`btn btn-primary ${isInstalled ? (tsInstalled ? 'install-nts-btn' : 'install-ts-btn') : ''}`}
+                            className={`btn btn-primary ${hasAnyLocal ? (hasTs ? 'install-nts-btn' : 'install-ts-btn') : ''}`}
                             onClick={() => onInstallClick(version)}
                             disabled={isInstalling || !status.online || showThreadSafeModal}
-                            title={!status.online ? "Version not available online" : isInstalled ? (tsInstalled ? "Install NTS variant" : "Install TS variant") : "Install version"}
+                            title={
+                              !status.online
+                                ? "Version not available online"
+                                : hasAnyLocal
+                                  ? hasTs
+                                    ? "Download the NTS build"
+                                    : "Download the TS build"
+                                  : "Download package into your versions folder"
+                            }
                           >
-                            {isInstalled ? `Install ${tsInstalled ? "NTS" : "TS"}` : "Install"}
+                            {hasAnyLocal ? `Download ${hasTs ? "NTS" : "TS"}` : "Download"}
                           </button>
                         )}
                       </div>
                     </div>
-                    {(tsInstalled || ntsInstalled) && (
+                    {(hasTs || hasNts) && (
                       <div className="variants-section">
-                        <div className="variants-label">Installed:</div>
+                        <div className="variants-label">On this PC:</div>
                         <div className="variants-list">
-                          {tsInstalled && (
+                          {hasTs && (
                             <div className="variant-item">
                               <span className="variant-badge ts-badge">TS</span>
                             </div>
                           )}
-                          {ntsInstalled && (
+                          {hasNts && (
                             <div className="variant-item">
                               <span className="variant-badge nts-badge">NTS</span>
                             </div>
